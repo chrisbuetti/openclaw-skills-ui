@@ -1,3 +1,10 @@
+
+def restart_gateway():
+    try:
+        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+    except Exception as e:
+        print("Failed to restart gateway:", e)
+
 import os
 import re
 import glob
