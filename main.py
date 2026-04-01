@@ -1,6 +1,7 @@
 import os
 import re
 import glob
+import subprocess
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -151,6 +152,7 @@ async def update_skill(workspace: str, folder: str, body: SkillUpdate):
     skill = get_skill(f"{workspace}/{folder}")
     content = serialize_skill_md(body.name, body.description, body.instructions)
     Path(skill["path"]).write_text(content, encoding="utf-8")
+    restart_gateway()
     return {"ok": True}
 
 
@@ -171,6 +173,7 @@ async def create_skill(body: SkillCreate):
     os.makedirs(base, exist_ok=True)
     content = serialize_skill_md(body.name, body.description, body.instructions)
     Path(skill_md).write_text(content, encoding="utf-8")
+    restart_gateway()
     return {"ok": True, "id": f"{body.workspace}/{body.folder}"}
 
 
@@ -180,6 +183,7 @@ async def delete_skill(workspace: str, folder: str):
     skill_dir = os.path.dirname(skill["path"])
     import shutil
     shutil.rmtree(skill_dir)
+    restart_gateway()
     return {"ok": True}
 
 
@@ -197,6 +201,7 @@ async def read_agent(name: str):
 async def update_agent(name: str, body: SoulUpdate):
     agent = get_agent(name)
     Path(agent["path"]).write_text(body.soul, encoding="utf-8")
+    restart_gateway()
     return {"ok": True}
 
 
