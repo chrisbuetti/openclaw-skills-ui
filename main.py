@@ -22,9 +22,28 @@ SKILLS_GLOB = os.path.expanduser("~/.openclaw/workspace-*/skills/*")
 WORKSPACE_GLOB = os.path.expanduser("~/.openclaw/workspace-*")
 
 
+
+import json
+def get_agent_models():
+    models = {}
+    config_path = os.path.expanduser("~/.openclaw/openclaw.json")
+    if os.path.exists(config_path):
+        try:
+            with open(config_path) as f:
+                data = json.load(f)
+                for agent in data.get("agents", {}).get("list", []):
+                    ws = agent.get("workspace", "")
+                    if ws:
+                        name = os.path.basename(ws).replace("workspace-", "", 1)
+                        models[name] = agent.get("model", "unknown")
+        except:
+            pass
+    return models
+
 def scan_agents() -> list[dict]:
     """Scan all workspace directories and return agent info with SOUL.md content."""
     agents = []
+    models = get_agent_models()
     for ws_dir in sorted(glob.glob(WORKSPACE_GLOB)):
         name = os.path.basename(ws_dir).replace("workspace-", "", 1)
         soul_path = os.path.join(ws_dir, "SOUL.md")
@@ -37,6 +56,7 @@ def scan_agents() -> list[dict]:
             "path": soul_path,
             "has_soul": has_soul,
             "soul": soul_content,
+            "model": models.get(name, "unknown model"),
         })
     return agents
 

@@ -435,7 +435,10 @@
           <button onclick="loadAgent('${esc(a.name)}')"
             class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
             <div class="font-medium truncate">${esc(a.name)}</div>
-            <div class="text-xs text-gray-500 mt-0.5">${a.has_soul ? 'SOUL.md' : 'No SOUL.md'}</div>
+            <div class="text-xs text-gray-500 mt-0.5 flex justify-between">
+              <span>${a.has_soul ? 'SOUL.md' : 'No SOUL'}</span>
+              <span class="text-blue-400 opacity-70 truncate ml-2" title="${esc(a.model || '')}">${esc((a.model || '').split('/').pop())}</span>
+            </div>
           </button>`;
       }
       list.innerHTML = html;
@@ -454,7 +457,7 @@
       document.getElementById('soul-panel').classList.remove('hidden');
 
       document.getElementById('soul-title').textContent = a.name;
-      document.getElementById('soul-meta').textContent = `~/.openclaw/workspace-${a.name}/SOUL.md`;
+      document.getElementById('soul-meta').textContent = `~/.openclaw/workspace-${a.name}/SOUL.md  •  Model: ${a.model || 'unknown'}`;
       document.getElementById('edit-soul').value = a.soul;
       document.getElementById('soul-save-btn').disabled = true;
 
