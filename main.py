@@ -24,8 +24,14 @@ WORKSPACE_GLOB = os.path.expanduser("~/.openclaw/workspace-*")
 
 
 import json
-def get_agent_models():
+
+CLASSIFICATIONS_DIR = os.path.expanduser("~/.openclaw/classifications")
+
+
+def get_agent_config():
+    """Return dicts of {agent_name: model} and {agent_name: classification} from openclaw.json."""
     models = {}
+    classifications = {}
     config_path = os.path.expanduser("~/.openclaw/openclaw.json")
     if os.path.exists(config_path):
         try:
@@ -36,14 +42,28 @@ def get_agent_models():
                     if ws:
                         name = os.path.basename(ws).replace("workspace-", "", 1)
                         models[name] = agent.get("model", "unknown")
+                        classifications[name] = agent.get("classification", "")
         except:
             pass
-    return models
+    return models, classifications
+
+
+def scan_classifications() -> list[dict]:
+    """Scan classification rule files."""
+    results = []
+    if os.path.isdir(CLASSIFICATIONS_DIR):
+        for f in sorted(os.listdir(CLASSIFICATIONS_DIR)):
+            if f.endswith(".md"):
+                path = os.path.join(CLASSIFICATIONS_DIR, f)
+                name = f.replace(".md", "")
+                content = Path(path).read_text(encoding="utf-8")
+                results.append({"name": name, "path": path, "content": content})
+    return results
 
 def scan_agents() -> list[dict]:
     """Scan all workspace directories and return agent info with SOUL.md content."""
     agents = []
-    models = get_agent_models()
+    models, classifications = get_agent_config()
     for ws_dir in sorted(glob.glob(WORKSPACE_GLOB)):
         name = os.path.basename(ws_dir).replace("workspace-", "", 1)
         soul_path = os.path.join(ws_dir, "SOUL.md")
@@ -57,6 +77,7 @@ def scan_agents() -> list[dict]:
             "has_soul": has_soul,
             "soul": soul_content,
             "model": models.get(name, "unknown model"),
+            "classification": classifications.get(name, ""),
         })
     return agents
 
@@ -210,6 +231,33 @@ async def delete_skill(workspace: str, folder: str):
     skill_dir = os.path.dirname(skill["path"])
     import shutil
     shutil.rmtree(skill_dir)
+    restart_gateway()
+    return {"ok": True}
+
+
+@app.get("/api/classifications")
+async def list_classifications():
+    return scan_classifications()
+
+
+@app.get("/api/classifications/{name}")
+async def read_classification(name: str):
+    for c in scan_classifications():
+        if c["name"] == name:
+            return c
+    raise HTTPException(status_code=404, detail="Classification not found")
+
+
+class ClassificationUpdate(BaseModel):
+    content: str
+
+
+@app.put("/api/classifications/{name}")
+async def update_classification(name: str, body: ClassificationUpdate):
+    path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Classification not found")
+    Path(path).write_text(body.content, encoding="utf-8")
     restart_gateway()
     return {"ok": True}
 

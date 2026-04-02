@@ -40,6 +40,8 @@
         class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400">Skills</button>
       <button id="tab-agents" onclick="switchTab('agents')"
         class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300">Agents</button>
+      <button id="tab-classifications" onclick="switchTab('classifications')"
+        class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300">Rules</button>
     </div>
 
     <!-- Skills sidebar content -->
@@ -67,6 +69,15 @@
       </div>
 
       <nav id="agent-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
+      </nav>
+    </div>
+
+    <!-- Classifications sidebar content -->
+    <div id="sidebar-classifications" class="hidden">
+      <div class="px-3 py-3 pb-2">
+        <p class="text-xs text-gray-500 px-1">Classification rules applied to agent groups</p>
+      </div>
+      <nav id="classification-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
       </nav>
     </div>
   </aside>
@@ -181,6 +192,32 @@
       </div>
     </div>
 
+    <!-- Classification Edit Panel -->
+    <div id="classification-panel" class="flex-1 flex flex-col overflow-hidden hidden">
+      <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+        <div>
+          <h2 id="cls-title" class="text-xl font-semibold"></h2>
+          <p id="cls-meta" class="text-sm text-gray-500 mt-0.5"></p>
+        </div>
+        <div class="flex gap-2">
+          <button onclick="saveClassification()" id="cls-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+        </div>
+      </header>
+
+      <div class="flex-1 overflow-y-auto p-8 space-y-6">
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Agents in this classification</label>
+          <div id="cls-agents" class="flex flex-wrap gap-2 mb-4"></div>
+        </div>
+        <div class="flex-1 flex flex-col">
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Rules (Markdown)</label>
+          <textarea id="edit-classification" oninput="markClsDirty()"
+            class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+            style="min-height: 500px"></textarea>
+        </div>
+      </div>
+    </div>
+
   </main>
 
   <!-- Toast -->
@@ -194,6 +231,9 @@
     let agents = [];
     let activeAgent = null;
     let soulDirty = false;
+    let classifications = [];
+    let activeClassification = null;
+    let clsDirty = false;
 
     // --- API ---
 
@@ -389,24 +429,35 @@
       document.getElementById('edit-panel').classList.add('hidden');
       document.getElementById('create-panel').classList.add('hidden');
       document.getElementById('soul-panel').classList.add('hidden');
+      document.getElementById('classification-panel').classList.add('hidden');
       document.getElementById('empty-state').classList.remove('hidden');
       activeId = null;
       activeAgent = null;
+      activeClassification = null;
 
       // Toggle sidebar sections
       document.getElementById('sidebar-skills').classList.toggle('hidden', tab !== 'skills');
       document.getElementById('sidebar-agents').classList.toggle('hidden', tab !== 'agents');
+      document.getElementById('sidebar-classifications').classList.toggle('hidden', tab !== 'classifications');
 
       // Style tabs
       const skillsTab = document.getElementById('tab-skills');
       const agentsTab = document.getElementById('tab-agents');
+      const clsTab = document.getElementById('tab-classifications');
       if (tab === 'skills') {
         skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
         agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-      } else {
+        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
+      } else if (tab === 'agents') {
         agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
         skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
+        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
         fetchAgents();
+      } else {
+        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
+        skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
+        agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
+        fetchClassifications();
       }
     }
 
@@ -431,10 +482,11 @@
       let html = '';
       for (const a of filtered) {
         const active = a.name === activeAgent;
+        const clsBadge = a.classification ? `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${a.classification === 'partnrup' ? 'bg-purple-500/20 text-purple-300' : 'bg-green-500/20 text-green-300'}">${esc(a.classification)}</span>` : '';
         html += `
           <button onclick="loadAgent('${esc(a.name)}')"
             class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
-            <div class="font-medium truncate">${esc(a.name)}</div>
+            <div class="font-medium truncate flex items-center gap-2">${esc(a.name)} ${clsBadge}</div>
             <div class="text-xs text-gray-500 mt-0.5 flex justify-between">
               <span>${a.has_soul ? 'SOUL.md' : 'No SOUL'}</span>
               <span class="text-blue-400 opacity-70 truncate ml-2" title="${esc(a.model || '')}">${esc((a.model || '').split('/').pop())}</span>
@@ -457,7 +509,8 @@
       document.getElementById('soul-panel').classList.remove('hidden');
 
       document.getElementById('soul-title').textContent = a.name;
-      document.getElementById('soul-meta').textContent = `~/.openclaw/workspace-${a.name}/SOUL.md  •  Model: ${a.model || 'unknown'}`;
+      const clsLabel = a.classification ? `  •  Classification: ${a.classification}` : '';
+      document.getElementById('soul-meta').textContent = `~/.openclaw/workspace-${a.name}/SOUL.md  •  Model: ${a.model || 'unknown'}${clsLabel}`;
       document.getElementById('edit-soul').value = a.soul;
       document.getElementById('soul-save-btn').disabled = true;
 
@@ -481,6 +534,92 @@
         soulDirty = false;
         document.getElementById('soul-save-btn').disabled = true;
         await fetchAgents();
+      } else {
+        toast('Save failed', 'red');
+      }
+    }
+
+    // --- Classifications API ---
+
+    async function fetchClassifications() {
+      const res = await fetch('/api/classifications');
+      classifications = await res.json();
+      // also fetch agents so we can show which agents belong to each classification
+      if (!agents.length) {
+        const ar = await fetch('/api/agents');
+        agents = await ar.json();
+      }
+      renderClassificationList();
+    }
+
+    function renderClassificationList() {
+      const list = document.getElementById('classification-list');
+      if (!classifications.length) {
+        list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No classifications found</div>';
+        return;
+      }
+      let html = '';
+      for (const c of classifications) {
+        const active = c.name === activeClassification;
+        const count = agents.filter(a => a.classification === c.name).length;
+        const color = c.name === 'partnrup' ? 'purple' : 'green';
+        html += `
+          <button onclick="loadClassification('${esc(c.name)}')"
+            class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
+            <div class="font-medium truncate flex items-center gap-2">
+              <span class="inline-block w-2 h-2 rounded-full bg-${color}-400"></span>
+              ${esc(c.name)}
+            </div>
+            <div class="text-xs text-gray-500 mt-0.5">${count} agent${count !== 1 ? 's' : ''}</div>
+          </button>`;
+      }
+      list.innerHTML = html;
+    }
+
+    async function loadClassification(name) {
+      activeClassification = name;
+      activeId = null;
+      activeAgent = null;
+      clsDirty = false;
+      const c = classifications.find(c => c.name === name);
+      if (!c) return;
+
+      document.getElementById('empty-state').classList.add('hidden');
+      document.getElementById('edit-panel').classList.add('hidden');
+      document.getElementById('create-panel').classList.add('hidden');
+      document.getElementById('soul-panel').classList.add('hidden');
+      document.getElementById('classification-panel').classList.remove('hidden');
+
+      document.getElementById('cls-title').textContent = name + ' rules';
+      document.getElementById('cls-meta').textContent = c.path;
+      document.getElementById('edit-classification').value = c.content;
+      document.getElementById('cls-save-btn').disabled = true;
+
+      // Show agent badges
+      const agentsInCls = agents.filter(a => a.classification === name);
+      const badgesEl = document.getElementById('cls-agents');
+      badgesEl.innerHTML = agentsInCls.map(a => `<span class="inline-block px-2 py-1 rounded-md text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300">${esc(a.name)}</span>`).join('');
+
+      renderClassificationList();
+    }
+
+    function markClsDirty() {
+      clsDirty = true;
+      document.getElementById('cls-save-btn').disabled = false;
+    }
+
+    async function saveClassification() {
+      if (!activeClassification) return;
+      const res = await fetch(`/api/classifications/${activeClassification}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: document.getElementById('edit-classification').value })
+      });
+      if (res.ok) {
+        toast('Classification rules saved', 'green');
+        clsDirty = false;
+        document.getElementById('cls-save-btn').disabled = true;
+        await fetchClassifications();
       } else {
         toast('Save failed', 'red');
       }
