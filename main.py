@@ -71,6 +71,18 @@ SYNC_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scr
 # Helpers
 # ──────────────────────────────────────────────────────────────
 
+def resolve_workspace_dir(agent_name: str) -> str:
+    """Resolve the workspace directory for an agent. 'main' uses workspace/, others use workspace-<name>/."""
+    if agent_name == "main":
+        return MAIN_WORKSPACE_DIR
+    return os.path.join(OCPLATFORM_DIR, f"workspace-{agent_name}")
+
+
+def resolve_skill_dir(agent_name: str, folder: str) -> str:
+    """Resolve the skill directory for an agent's skill."""
+    return os.path.join(resolve_workspace_dir(agent_name), "skills", folder)
+
+
 def load_config() -> dict:
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
@@ -662,7 +674,7 @@ async def update_skill(workspace: str, folder: str):
 
 @app.put("/api/skills/agent/{workspace}/{folder}")
 async def update_agent_skill(workspace: str, folder: str, body: SkillUpdate):
-    skill_path = os.path.join(OCPLATFORM_DIR, f"workspace-{workspace}", "skills", folder, "SKILL.md")
+    skill_path = os.path.join(resolve_skill_dir(workspace, folder), "SKILL.md")
     if not os.path.exists(skill_path):
         raise HTTPException(status_code=404, detail="Skill not found")
     content = serialize_skill_md(body.name, body.description, body.instructions)
@@ -695,7 +707,7 @@ async def create_skill(body: SkillCreate):
     if body.workspace == "__global__":
         base = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
     else:
-        base = os.path.join(OCPLATFORM_DIR, f"workspace-{body.workspace}", "skills", body.folder)
+        base = resolve_skill_dir(body.workspace, body.folder)
     skill_md = os.path.join(base, "SKILL.md")
     if os.path.exists(skill_md):
         raise HTTPException(status_code=409, detail="Skill already exists")
@@ -711,7 +723,7 @@ async def delete_skill(workspace: str, folder: str):
     if workspace == "__global__":
         skill_dir = os.path.join(GLOBAL_SKILLS_DIR, folder)
     else:
-        skill_dir = os.path.join(OCPLATFORM_DIR, f"workspace-{workspace}", "skills", folder)
+        skill_dir = resolve_skill_dir(workspace, folder)
     if not os.path.isdir(skill_dir):
         raise HTTPException(status_code=404, detail="Skill not found")
     shutil.rmtree(skill_dir)
@@ -732,11 +744,11 @@ async def promote_skill_to_global(body: SkillPromote):
     This moves (or copies) the skill folder from workspace-<agent>/skills/<folder>
     to ~/.openclaw/skills/<folder>, making it available to all agents.
     """
-    src = os.path.join(OCPLATFORM_DIR, f"workspace-{body.source_agent}", "skills", body.folder)
+    src = resolve_skill_dir(body.source_agent, body.folder)
     dst = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
 
     if not os.path.isdir(src):
-        raise HTTPException(status_code=404, detail="Source skill not found")
+        raise HTTPException(status_code=404, detail=f"Source skill not found at {src}")
     if os.path.exists(dst):
         raise HTTPException(status_code=409, detail=f"A global skill named '{body.folder}' already exists")
 
@@ -761,12 +773,12 @@ async def copy_skill(body: SkillCopy):
     if body.source_agent == "__global__":
         src = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
     else:
-        src = os.path.join(OCPLATFORM_DIR, f"workspace-{body.source_agent}", "skills", body.folder)
+        src = resolve_skill_dir(body.source_agent, body.folder)
 
     if body.target_agent == "__global__":
         dst = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
     else:
-        dst = os.path.join(OCPLATFORM_DIR, f"workspace-{body.target_agent}", "skills", body.folder)
+        dst = resolve_skill_dir(body.target_agent, body.folder)
 
     if not os.path.isdir(src):
         raise HTTPException(status_code=404, detail="Source skill not found")
@@ -790,12 +802,12 @@ async def move_skill(body: SkillMove):
     if body.source_agent == "__global__":
         src = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
     else:
-        src = os.path.join(OCPLATFORM_DIR, f"workspace-{body.source_agent}", "skills", body.folder)
+        src = resolve_skill_dir(body.source_agent, body.folder)
 
     if body.target_agent == "__global__":
         dst = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
     else:
-        dst = os.path.join(OCPLATFORM_DIR, f"workspace-{body.target_agent}", "skills", body.folder)
+        dst = resolve_skill_dir(body.target_agent, body.folder)
 
     if not os.path.isdir(src):
         raise HTTPException(status_code=404, detail="Source skill not found")
@@ -829,7 +841,7 @@ class SoulUpdate(BaseModel):
 
 @app.put("/api/agents/{name}/soul")
 async def update_soul(name: str, body: SoulUpdate):
-    path = os.path.join(OCPLATFORM_DIR, f"workspace-{name}", "SOUL.md")
+    path = os.path.join(resolve_workspace_dir(name), "SOUL.md")
     if not os.path.exists(os.path.dirname(path)):
         raise HTTPException(status_code=404, detail="Agent workspace not found")
     Path(path).write_text(body.content, encoding="utf-8")
@@ -843,7 +855,7 @@ class IdentityUpdate(BaseModel):
 
 @app.put("/api/agents/{name}/identity")
 async def update_identity(name: str, body: IdentityUpdate):
-    path = os.path.join(OCPLATFORM_DIR, f"workspace-{name}", "IDENTITY.md")
+    path = os.path.join(resolve_workspace_dir(name), "IDENTITY.md")
     if not os.path.exists(os.path.dirname(path)):
         raise HTTPException(status_code=404, detail="Agent workspace not found")
     Path(path).write_text(body.content, encoding="utf-8")
