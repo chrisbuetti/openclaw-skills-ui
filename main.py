@@ -1,10 +1,3 @@
-def restart_gateway():
-    try:
-        subprocess.run(["openclaw", "gateway", "restart"], check=True)
-    except Exception as e:
-        print("Failed to restart gateway:", e)
-
-
 import os
 import re
 import glob
@@ -19,21 +12,59 @@ from typing import Optional, List
 import json
 import shutil
 
+
+def restart_gateway():
+    try:
+        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+    except Exception as e:
+        print("Failed to restart gateway:", e)
+
+
+def detect_npm_skills_dir() -> str:
+    """Auto-detect the OpenClaw npm skills directory."""
+    env = os.environ.get("NPM_SKILLS_DIR")
+    if env and os.path.isdir(env):
+        return env
+    # Check common paths
+    candidates = [
+        "/opt/homebrew/lib/node_modules/openclaw/skills",
+        "/usr/lib/node_modules/openclaw/skills",
+        "/usr/local/lib/node_modules/openclaw/skills",
+    ]
+    for p in candidates:
+        if os.path.isdir(p):
+            return p
+    # Try npm root -g
+    try:
+        result = subprocess.run(
+            ["npm", "root", "-g"], capture_output=True, text=True, timeout=10
+        )
+        if result.returncode == 0:
+            p = os.path.join(result.stdout.strip(), "openclaw", "skills")
+            if os.path.isdir(p):
+                return p
+    except Exception:
+        pass
+    # Fallback (may not exist)
+    return "/opt/homebrew/lib/node_modules/openclaw/skills"
+
+
 app = FastAPI(title="OpenClaw Manager")
 templates = Jinja2Templates(directory="templates")
 
-OCPLATFORM_DIR = os.path.expanduser("~/.openclaw")
+# --- Configurable paths ---
+OCPLATFORM_DIR = os.environ.get("OCPLATFORM_DIR", os.path.expanduser("~/.openclaw"))
 SKILLS_GLOB = os.path.join(OCPLATFORM_DIR, "workspace-*/skills/*")
 WORKSPACE_GLOB = os.path.join(OCPLATFORM_DIR, "workspace-*")
 MAIN_WORKSPACE_DIR = os.path.join(OCPLATFORM_DIR, "workspace")
 MAIN_SKILLS_GLOB = os.path.join(MAIN_WORKSPACE_DIR, "skills/*")
-NPM_SKILLS_DIR = "/opt/homebrew/lib/node_modules/openclaw/skills"
+NPM_SKILLS_DIR = detect_npm_skills_dir()
 GLOBAL_SKILLS_DIR = os.path.join(OCPLATFORM_DIR, "skills")
 CLASSIFICATIONS_DIR = os.path.join(OCPLATFORM_DIR, "classifications")
 CONFIG_PATH = os.path.join(OCPLATFORM_DIR, "openclaw.json")
 AGENT_CLS_PATH = os.path.join(OCPLATFORM_DIR, "agent-classifications.json")
 SKILL_ACCESS_PATH = os.path.join(OCPLATFORM_DIR, "skill-access.json")
-SYNC_SCRIPT_PATH = os.path.join(OCPLATFORM_DIR, "scripts", "sync-skill-access.sh")
+SYNC_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "sync-skill-access.sh")
 
 
 # ──────────────────────────────────────────────────────────────
