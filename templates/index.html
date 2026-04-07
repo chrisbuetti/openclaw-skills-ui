@@ -395,7 +395,7 @@ function renderDashboard() {
 
   // Agent cards
   document.getElementById('agent-grid').innerHTML = d.agents.map(a => {
-    const emoji = a.identity?.emoji || '🤖';
+    const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
     const tagBadgesHtml = (a.agent_tags || []).length
       ? a.agent_tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('')
       : `<span class="badge-unclassified text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">no tags</span>`;
@@ -404,21 +404,30 @@ function renderDashboard() {
     const toolsBadge = Object.keys(a.tools || {}).length
       ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 font-semibold uppercase">restricted</span>`
       : '';
+    const orphanBadge = a.orphan
+      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-300 font-semibold uppercase">orphan</span>`
+      : '';
+    const noWsBadge = !a.has_workspace && !a.orphan
+      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/15 text-gray-400 font-semibold uppercase">no workspace</span>`
+      : '';
+    const borderClass = a.orphan ? 'border-amber-500/30' : !a.has_workspace ? 'border-gray-700 border-dashed' : 'border-gray-800';
 
     return `
       <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
-        class="bg-gray-900 rounded-xl border border-gray-800 p-5 hover:border-gray-600 cursor-pointer transition group">
+        class="bg-gray-900 rounded-xl border ${borderClass} p-5 hover:border-gray-600 cursor-pointer transition group">
         <div class="flex items-start justify-between mb-3">
           <div class="flex items-center gap-2">
             <span class="text-2xl">${emoji}</span>
             <div>
               <div class="font-semibold">${esc(a.display_name)}</div>
-              <div class="text-xs text-gray-500">${esc(a.name)}</div>
+              <div class="text-xs text-gray-500">${esc(a.theme || a.name)}</div>
             </div>
           </div>
           <div class="flex flex-col items-end gap-1">
             ${clsBadge}
             ${toolsBadge}
+            ${orphanBadge}
+            ${noWsBadge}
           </div>
         </div>
         <div class="flex items-center justify-between text-xs">
@@ -476,10 +485,13 @@ function renderAgentSidebar() {
 
   list.innerHTML = filtered.map(a => {
     const active = a.name === state.selectedAgent;
-    const emoji = a.identity?.emoji || '🤖';
+    const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
     const modelShort = (a.model || '').split('/').pop();
     const agentTagBadges = (a.agent_tags || []).slice(0, 2).map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('');
     const clsBadge = agentTagBadges;
+    const statusBadge = a.orphan
+      ? '<span class="text-[9px] px-1 py-0.5 rounded bg-amber-500/15 text-amber-300">orphan</span>'
+      : (a.has_workspace === false ? '<span class="text-[9px] px-1 py-0.5 rounded bg-gray-600/30 text-gray-500">no ws</span>' : '');
     return `
       <button onclick="selectAgent('${esc(a.name)}')"
         class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
@@ -487,6 +499,7 @@ function renderAgentSidebar() {
           <span>${emoji}</span>
           <span class="font-medium truncate">${esc(a.display_name)}</span>
           ${clsBadge}
+          ${statusBadge}
         </div>
         <div class="flex justify-between text-xs text-gray-500 mt-0.5 pl-6">
           <span>${a.skill_count} skills</span>
@@ -506,10 +519,12 @@ async function selectAgent(name) {
   const detail = document.getElementById('agent-detail');
   detail.classList.remove('hidden');
 
-  const emoji = a.identity?.emoji || '🤖';
+  const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
   const vibe = a.identity?.vibe || '';
-  const creature = a.identity?.creature || '';
+  const creature = a.identity?.creature || a.theme || '';
   const modelShort = (a.model || '').split('/').pop();
+  const hasWorkspace = a.has_workspace !== false;
+  const isOrphan = a.orphan === true;
   const detailTagBadges = (a.agent_tags || []).length
     ? a.agent_tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join(' ')
     : `<span class="badge-unclassified text-xs px-2 py-1 rounded font-semibold uppercase">no tags</span>`;
@@ -558,6 +573,18 @@ async function selectAgent(name) {
       }).join('')
     : '<p class="text-sm text-gray-500 py-4">No global skills available — assign matching tags on the <a href="#" onclick="navigate(\'access\'); return false" class="text-blue-400 hover:underline">Access</a> page</p>';
 
+  const wsBanner = isOrphan
+    ? `<div class="bg-amber-500/10 border border-amber-500/20 rounded-lg p-4">
+        <div class="text-sm font-medium text-amber-300">⚠️ Orphan Workspace</div>
+        <div class="text-xs text-amber-200/70 mt-1">This workspace directory exists but is not listed in openclaw.json. Add it to <code>agents.list[]</code> or remove the directory.</div>
+      </div>`
+    : !hasWorkspace
+    ? `<div class="bg-gray-800 border border-gray-700 border-dashed rounded-lg p-4">
+        <div class="text-sm font-medium text-gray-400">📁 No Workspace Directory</div>
+        <div class="text-xs text-gray-500 mt-1">This agent is configured in openclaw.json but has no workspace on disk. Create one to add SOUL.md, skills, etc.</div>
+      </div>`
+    : '';
+
   detail.innerHTML = `
     <div class="p-8 space-y-6">
       <!-- Header -->
@@ -576,14 +603,15 @@ async function selectAgent(name) {
         </div>
       </div>
 
+      ${wsBanner}
       ${toolsHtml}
 
       <!-- Workspace files -->
-      <div>
+      ${hasWorkspace ? `<div>
         <div class="text-sm font-medium text-gray-400 mb-2">Workspace Files</div>
-        <div class="flex flex-wrap gap-2">${filesHtml}</div>
+        <div class="flex flex-wrap gap-2">${filesHtml || '<span class="text-sm text-gray-500">No files</span>'}</div>
         <div class="text-xs text-gray-600 mt-2">${esc(a.path)}</div>
-      </div>
+      </div>` : ''}
 
       <!-- Skills -->
       <div>
@@ -604,7 +632,7 @@ async function selectAgent(name) {
       </div>
 
       <!-- Editable sections -->
-      <div class="grid grid-cols-2 gap-6">
+      ${hasWorkspace ? `<div class="grid grid-cols-2 gap-6">
         <div>
           <div class="flex items-center justify-between mb-2">
             <label class="text-sm font-medium text-gray-400">IDENTITY.md</label>
@@ -623,7 +651,9 @@ async function selectAgent(name) {
             class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
             style="min-height: 250px">${esc(a.soul)}</textarea>
         </div>
-      </div>
+      </div>` : `<div class="bg-gray-800/50 rounded-lg p-6 text-center">
+        <div class="text-sm text-gray-500">Create a workspace directory to edit IDENTITY.md and SOUL.md</div>
+      </div>`}
     </div>`;
 }
 

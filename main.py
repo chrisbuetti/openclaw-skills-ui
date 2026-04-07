@@ -183,7 +183,7 @@ def get_model_display(model) -> str:
 # ──────────────────────────────────────────────────────────────
 
 def scan_agents() -> list[dict]:
-    """Scan all workspace directories and return comprehensive agent info."""
+    """Discover agents from openclaw.json config (source of truth), then enrich with workspace files."""
     agents = []
     config = load_config()
     agent_list = config.get("agents", {}).get("list", [])
@@ -206,29 +206,36 @@ def scan_agents() -> list[dict]:
             skill_tags = skill_tags_map.get(sdir, {}).get("tags", [])
             global_skills_list.append({"folder": sdir, "tags": skill_tags, **parsed})
 
-    # Build a lookup from agent config
-    agent_configs = {}
-    for a in agent_list:
-        aid = a.get("id", "")
-        agent_configs[aid] = a
+    # Track which agent IDs are claimed by config entries
+    claimed_agent_ids = set()
 
-    ws_dirs = sorted(glob.glob(WORKSPACE_GLOB))
-    if os.path.isdir(MAIN_WORKSPACE_DIR):
-        ws_dirs.insert(0, MAIN_WORKSPACE_DIR)
+    # Iterate over agents.list[] from config — this is the source of truth
+    for agent_cfg in agent_list:
+        name = agent_cfg.get("id", "")
+        if not name:
+            continue
 
-    for ws_dir in ws_dirs:
-        basename = os.path.basename(ws_dir)
-        name = "main" if basename == "workspace" else basename.replace("workspace-", "", 1)
-        agent_cfg = agent_configs.get(name, {})
+        # Resolve workspace path: explicit config > convention > missing
+        ws_dir = agent_cfg.get("workspace", "")
+        if not ws_dir:
+            # Convention: "main" uses ~/.openclaw/workspace, others use workspace-{id}
+            if name == "main":
+                ws_dir = MAIN_WORKSPACE_DIR
+            else:
+                ws_dir = os.path.join(OCPLATFORM_DIR, f"workspace-{name}")
 
-        # Read workspace files
+        has_workspace = os.path.isdir(ws_dir)
+        claimed_agent_ids.add(name)
+
+        # Read workspace files (only if dir exists)
         files = {}
-        for fname in ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md", "MODEL"]:
-            fpath = os.path.join(ws_dir, fname)
-            if os.path.isfile(fpath):
-                files[fname] = Path(fpath).read_text(encoding="utf-8")
+        if has_workspace:
+            for fname in ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md", "MODEL"]:
+                fpath = os.path.join(ws_dir, fname)
+                if os.path.isfile(fpath):
+                    files[fname] = Path(fpath).read_text(encoding="utf-8")
 
-        # Parse identity
+        # Parse identity from IDENTITY.md
         identity_data = {}
         if "IDENTITY.md" in files:
             for line in files["IDENTITY.md"].splitlines():
@@ -238,42 +245,52 @@ def scan_agents() -> list[dict]:
                     val = line.split(":**")[1].strip()
                     identity_data[key] = val
 
-        # Get model
+        # Get model from config
         model_raw = agent_cfg.get("model", "unknown")
         model = get_model_display(model_raw)
 
-        # Get classification (legacy) and tags (new)
-        display_name = identity_data.get("name", name.title())
+        # Display name: config identity > IDENTITY.md > id titlecased
+        cfg_identity = agent_cfg.get("identity", {})
+        display_name = (
+            cfg_identity.get("name")
+            or identity_data.get("name")
+            or agent_cfg.get("name")
+            or name.title()
+        )
+
+        # Theme from config identity
+        theme = cfg_identity.get("theme", "")
+
+        # Classification (legacy) and tags (new)
         classification = cls_map.get(display_name, cls_map.get(name, ""))
         agent_tags = agent_tags_map.get(name, {}).get("tags", [])
 
-        # Get tools config
+        # Tools config
         tools = agent_cfg.get("tools", {})
 
-        # Scan per-agent skills
-        skills_dir = os.path.join(ws_dir, "skills")
+        # Scan per-agent skills (only if workspace exists)
         agent_skills = []
-        if os.path.isdir(skills_dir):
-            for sdir in sorted(os.listdir(skills_dir)):
-                spath = os.path.join(skills_dir, sdir)
-                if os.path.isdir(spath):
-                    skill_md = os.path.join(spath, "SKILL.md")
-                    has_md = os.path.isfile(skill_md)
-                    skill_info = {"folder": sdir, "has_skill_md": has_md}
-                    if has_md:
-                        parsed = parse_skill_md(skill_md)
-                        skill_info.update(parsed)
-                    agent_skills.append(skill_info)
+        if has_workspace:
+            skills_dir = os.path.join(ws_dir, "skills")
+            if os.path.isdir(skills_dir):
+                for sdir in sorted(os.listdir(skills_dir)):
+                    spath = os.path.join(skills_dir, sdir)
+                    if os.path.isdir(spath):
+                        skill_md = os.path.join(spath, "SKILL.md")
+                        has_md = os.path.isfile(skill_md)
+                        skill_info = {"folder": sdir, "has_skill_md": has_md}
+                        if has_md:
+                            parsed = parse_skill_md(skill_md)
+                            skill_info.update(parsed)
+                        agent_skills.append(skill_info)
 
         # Resolve accessible global skills based on tags
         if agent_tags:
-            # Tag-based: agent sees global skills with overlapping tags
             agent_global_skills = [
                 s for s in global_skills_list
                 if not s["tags"] or bool(set(s["tags"]) & set(agent_tags))
             ]
         else:
-            # No tags configured: fall back to legacy classification or show all
             agent_global_skills = [
                 s for s in global_skills_list
                 if not s.get("tags")
@@ -282,12 +299,15 @@ def scan_agents() -> list[dict]:
         agents.append({
             "name": name,
             "display_name": display_name,
-            "path": ws_dir,
+            "theme": theme,
+            "path": ws_dir if has_workspace else "",
+            "has_workspace": has_workspace,
             "model": model,
             "model_raw": model_raw,
             "classification": classification,
             "agent_tags": agent_tags,
             "identity": identity_data,
+            "config_identity": cfg_identity,
             "tools": tools,
             "skills": agent_skills,
             "skill_count": len(agent_skills),
@@ -296,6 +316,59 @@ def scan_agents() -> list[dict]:
             "files": {k: True for k in files},
             "soul": files.get("SOUL.md", ""),
             "identity_md": files.get("IDENTITY.md", ""),
+            "orphan": False,
+        })
+
+    # Detect orphan workspace dirs (exist on disk but not in config)
+    all_ws_dirs = sorted(glob.glob(WORKSPACE_GLOB))
+    if os.path.isdir(MAIN_WORKSPACE_DIR):
+        all_ws_dirs.append(MAIN_WORKSPACE_DIR)
+
+    for ws_dir in all_ws_dirs:
+        basename = os.path.basename(ws_dir)
+        name = "main" if basename == "workspace" else basename.replace("workspace-", "", 1)
+        if name in claimed_agent_ids:
+            continue
+        # Orphan workspace — not in config
+
+        files = {}
+        for fname in ["SOUL.md", "IDENTITY.md", "USER.md", "AGENTS.md", "TOOLS.md", "MEMORY.md", "MODEL"]:
+            fpath = os.path.join(ws_dir, fname)
+            if os.path.isfile(fpath):
+                files[fname] = Path(fpath).read_text(encoding="utf-8")
+
+        identity_data = {}
+        if "IDENTITY.md" in files:
+            for line in files["IDENTITY.md"].splitlines():
+                line = line.strip()
+                if line.startswith("- **") and ":**" in line:
+                    key = line.split("**")[1].replace(":", "").strip().lower()
+                    val = line.split(":**")[1].strip()
+                    identity_data[key] = val
+
+        display_name = identity_data.get("name", name.title())
+
+        agents.append({
+            "name": name,
+            "display_name": display_name,
+            "theme": "",
+            "path": ws_dir,
+            "has_workspace": True,
+            "model": "unknown",
+            "model_raw": "unknown",
+            "classification": "",
+            "agent_tags": [],
+            "identity": identity_data,
+            "config_identity": {},
+            "tools": {},
+            "skills": [],
+            "skill_count": 0,
+            "global_skills": [],
+            "global_skill_count": 0,
+            "files": {k: True for k in files},
+            "soul": files.get("SOUL.md", ""),
+            "identity_md": files.get("IDENTITY.md", ""),
+            "orphan": True,
         })
 
     return agents
