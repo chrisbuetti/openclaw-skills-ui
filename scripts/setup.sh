@@ -49,6 +49,53 @@ fi
 echo "  OpenClaw data dir: $OC_DIR"
 echo ""
 
+# --- Normalize agent workspaces ---
+echo "Normalizing agent workspaces..."
+AGENTS_DIR="${OC_DIR}/agents"
+
+# Known system/internal folders that should never be treated as agent dirs
+SYSTEM_DIRS="agents browser canvas classifications completions credentials cron custom-plugins delivery-queue devices extensions flows identity logs media memory ollama-modelfiles qqbot scripts skills subagents tasks telegram workspace"
+
+is_system_dir() {
+  echo " $SYSTEM_DIRS " | grep -q " $1 "
+}
+
+if [[ -d "$AGENTS_DIR" ]]; then
+  ws_renamed=0
+  ws_created=0
+  ws_skipped=0
+
+  for agent_dir in "$AGENTS_DIR"/*/; do
+    [[ ! -d "$agent_dir" ]] && continue
+    agent=$(basename "$agent_dir")
+    workspace_dir="${OC_DIR}/workspace-${agent}"
+    adhoc_dir="${OC_DIR}/${agent}"
+
+    if [[ -d "$workspace_dir" ]]; then
+      ((ws_skipped++))
+      continue
+    fi
+
+    # Check for ad-hoc folder (agent name without workspace- prefix)
+    if [[ -d "$adhoc_dir" ]] && ! is_system_dir "$agent"; then
+      echo "  🔄 $agent — renaming ${agent}/ → workspace-${agent}/"
+      mv "$adhoc_dir" "$workspace_dir"
+      ((ws_renamed++))
+      continue
+    fi
+
+    # No folder at all — create empty workspace
+    echo "  📁 $agent — creating workspace-${agent}/"
+    mkdir -p "$workspace_dir"
+    ((ws_created++))
+  done
+
+  echo "  Workspaces: ${ws_renamed} renamed, ${ws_created} created, ${ws_skipped} already existed"
+else
+  echo "  No agents directory found, skipping."
+fi
+echo ""
+
 # --- Create skill-access.json if missing ---
 if [[ -f "$ACCESS_FILE" ]]; then
   echo "skill-access.json already exists, keeping it."
