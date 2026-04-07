@@ -15,7 +15,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 import json
 import shutil
 
@@ -25,11 +25,15 @@ templates = Jinja2Templates(directory="templates")
 OCPLATFORM_DIR = os.path.expanduser("~/.openclaw")
 SKILLS_GLOB = os.path.join(OCPLATFORM_DIR, "workspace-*/skills/*")
 WORKSPACE_GLOB = os.path.join(OCPLATFORM_DIR, "workspace-*")
+MAIN_WORKSPACE_DIR = os.path.join(OCPLATFORM_DIR, "workspace")
+MAIN_SKILLS_GLOB = os.path.join(MAIN_WORKSPACE_DIR, "skills/*")
 NPM_SKILLS_DIR = "/opt/homebrew/lib/node_modules/openclaw/skills"
 GLOBAL_SKILLS_DIR = os.path.join(OCPLATFORM_DIR, "skills")
 CLASSIFICATIONS_DIR = os.path.join(OCPLATFORM_DIR, "classifications")
 CONFIG_PATH = os.path.join(OCPLATFORM_DIR, "openclaw.json")
 AGENT_CLS_PATH = os.path.join(OCPLATFORM_DIR, "agent-classifications.json")
+SKILL_ACCESS_PATH = os.path.join(OCPLATFORM_DIR, "skill-access.json")
+SYNC_SCRIPT_PATH = os.path.join(OCPLATFORM_DIR, "scripts", "sync-skill-access.sh")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -53,6 +57,45 @@ def load_classifications_map() -> dict:
 def save_classifications_map(data: dict):
     with open(AGENT_CLS_PATH, "w") as f:
         json.dump(data, f, indent=4)
+
+
+def load_skill_access() -> dict:
+    if os.path.exists(SKILL_ACCESS_PATH):
+        with open(SKILL_ACCESS_PATH) as f:
+            data = json.load(f)
+    else:
+        data = {}
+    # Ensure structure
+    data.setdefault("tags", {})
+    data.setdefault("skills", {})
+    data.setdefault("agents", {})
+    return data
+
+
+def save_skill_access(data: dict):
+    with open(SKILL_ACCESS_PATH, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+def run_sync_script(dry_run: bool = False) -> dict:
+    """Run the sync-skill-access.sh script and return output."""
+    if not os.path.exists(SYNC_SCRIPT_PATH):
+        return {"ok": False, "error": f"Sync script not found at {SYNC_SCRIPT_PATH}"}
+    cmd = ["bash", SYNC_SCRIPT_PATH]
+    if dry_run:
+        cmd.append("--dry-run")
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return {
+            "ok": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode,
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Sync script timed out"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def parse_skill_md(path: str) -> dict:
@@ -114,6 +157,23 @@ def scan_agents() -> list[dict]:
     config = load_config()
     agent_list = config.get("agents", {}).get("list", [])
     cls_map = load_classifications_map()
+    access_data = load_skill_access()
+    skill_tags_map = access_data.get("skills", {})
+    agent_tags_map = access_data.get("agents", {})
+
+    # Pre-scan global skills for tag-based access resolution
+    global_skills_list = []
+    if os.path.isdir(GLOBAL_SKILLS_DIR):
+        for sdir in sorted(os.listdir(GLOBAL_SKILLS_DIR)):
+            spath = os.path.join(GLOBAL_SKILLS_DIR, sdir)
+            if not os.path.isdir(spath):
+                continue
+            skill_md = os.path.join(spath, "SKILL.md")
+            if not os.path.isfile(skill_md):
+                continue
+            parsed = parse_skill_md(skill_md)
+            skill_tags = skill_tags_map.get(sdir, {}).get("tags", [])
+            global_skills_list.append({"folder": sdir, "tags": skill_tags, **parsed})
 
     # Build a lookup from agent config
     agent_configs = {}
@@ -121,8 +181,13 @@ def scan_agents() -> list[dict]:
         aid = a.get("id", "")
         agent_configs[aid] = a
 
-    for ws_dir in sorted(glob.glob(WORKSPACE_GLOB)):
-        name = os.path.basename(ws_dir).replace("workspace-", "", 1)
+    ws_dirs = sorted(glob.glob(WORKSPACE_GLOB))
+    if os.path.isdir(MAIN_WORKSPACE_DIR):
+        ws_dirs.insert(0, MAIN_WORKSPACE_DIR)
+
+    for ws_dir in ws_dirs:
+        basename = os.path.basename(ws_dir)
+        name = "main" if basename == "workspace" else basename.replace("workspace-", "", 1)
         agent_cfg = agent_configs.get(name, {})
 
         # Read workspace files
@@ -146,9 +211,10 @@ def scan_agents() -> list[dict]:
         model_raw = agent_cfg.get("model", "unknown")
         model = get_model_display(model_raw)
 
-        # Get classification
+        # Get classification (legacy) and tags (new)
         display_name = identity_data.get("name", name.title())
         classification = cls_map.get(display_name, cls_map.get(name, ""))
+        agent_tags = agent_tags_map.get(name, {}).get("tags", [])
 
         # Get tools config
         tools = agent_cfg.get("tools", {})
@@ -168,6 +234,20 @@ def scan_agents() -> list[dict]:
                         skill_info.update(parsed)
                     agent_skills.append(skill_info)
 
+        # Resolve accessible global skills based on tags
+        if agent_tags:
+            # Tag-based: agent sees global skills with overlapping tags
+            agent_global_skills = [
+                s for s in global_skills_list
+                if not s["tags"] or bool(set(s["tags"]) & set(agent_tags))
+            ]
+        else:
+            # No tags configured: fall back to legacy classification or show all
+            agent_global_skills = [
+                s for s in global_skills_list
+                if not s.get("tags")
+            ]
+
         agents.append({
             "name": name,
             "display_name": display_name,
@@ -175,10 +255,13 @@ def scan_agents() -> list[dict]:
             "model": model,
             "model_raw": model_raw,
             "classification": classification,
+            "agent_tags": agent_tags,
             "identity": identity_data,
             "tools": tools,
             "skills": agent_skills,
             "skill_count": len(agent_skills),
+            "global_skills": agent_global_skills,
+            "global_skill_count": len(agent_global_skills),
             "files": {k: True for k in files},
             "soul": files.get("SOUL.md", ""),
             "identity_md": files.get("IDENTITY.md", ""),
@@ -213,6 +296,8 @@ def scan_all_skills() -> list[dict]:
             })
 
     # Tier 2: User global
+    access_data = load_skill_access()
+    skill_tags_map = access_data.get("skills", {})
     if os.path.isdir(GLOBAL_SKILLS_DIR):
         for sdir in sorted(os.listdir(GLOBAL_SKILLS_DIR)):
             spath = os.path.join(GLOBAL_SKILLS_DIR, sdir)
@@ -222,6 +307,7 @@ def scan_all_skills() -> list[dict]:
             if not os.path.isfile(skill_md):
                 continue
             parsed = parse_skill_md(skill_md)
+            tags = skill_tags_map.get(sdir, {}).get("tags", [])
             skills.append({
                 "id": f"global/{sdir}",
                 "folder": sdir,
@@ -229,16 +315,20 @@ def scan_all_skills() -> list[dict]:
                 "tier_label": "Global (shared)",
                 "source": "~/.openclaw/skills",
                 "agent": None,
+                "tags": tags,
                 "path": skill_md,
                 **parsed,
             })
 
-    # Tier 3: Per-agent
-    for skill_dir in sorted(glob.glob(SKILLS_GLOB)):
+    # Tier 3: Per-agent (workspace-* and main workspace)
+    all_agent_skill_dirs = sorted(glob.glob(SKILLS_GLOB)) + sorted(glob.glob(MAIN_SKILLS_GLOB))
+    for skill_dir in all_agent_skill_dirs:
         skill_md = os.path.join(skill_dir, "SKILL.md")
         if not os.path.isfile(skill_md):
             continue
-        workspace = skill_dir.split("/skills/")[0].split("workspace-")[-1]
+        parts = skill_dir.split("/skills/")[0]
+        basename = os.path.basename(parts)
+        workspace = "main" if basename == "workspace" else basename.replace("workspace-", "", 1)
         folder_name = os.path.basename(skill_dir)
         parsed = parse_skill_md(skill_md)
         skills.append({
@@ -246,7 +336,7 @@ def scan_all_skills() -> list[dict]:
             "folder": folder_name,
             "tier": "agent",
             "tier_label": f"Agent ({workspace})",
-            "source": f"workspace-{workspace}",
+            "source": "workspace" if workspace == "main" else f"workspace-{workspace}",
             "agent": workspace,
             "path": skill_md,
             **parsed,
@@ -310,6 +400,7 @@ async def dashboard():
     skills = scan_all_skills()
     classifications = scan_classifications()
     cls_map = load_classifications_map()
+    skill_access = load_skill_access()
 
     return {
         "agents": agents,
@@ -321,10 +412,105 @@ async def dashboard():
         },
         "classifications": classifications,
         "classifications_map": cls_map,
+        "skill_access": skill_access,
     }
 
 
+# --- Skill Access (tag-based) ---
+
+@app.get("/api/skill-access")
+async def get_skill_access_config():
+    """Return the full skill-access.json config."""
+    return load_skill_access()
+
+
+@app.put("/api/skill-access")
+async def save_skill_access_config(request: Request):
+    """Save the full skill-access.json config."""
+    data = await request.json()
+    save_skill_access(data)
+    return {"ok": True}
+
+
+class TagCreate(BaseModel):
+    name: str
+    description: str = ""
+
+
+@app.post("/api/skill-access/tags")
+async def create_tag(body: TagCreate):
+    data = load_skill_access()
+    if body.name in data["tags"]:
+        raise HTTPException(status_code=409, detail="Tag already exists")
+    data["tags"][body.name] = {"description": body.description}
+    save_skill_access(data)
+    return {"ok": True}
+
+
+@app.delete("/api/skill-access/tags/{name}")
+async def delete_tag(name: str):
+    data = load_skill_access()
+    if name not in data["tags"]:
+        raise HTTPException(status_code=404, detail="Tag not found")
+    del data["tags"][name]
+    # Remove tag from all skills and agents
+    for skill in data["skills"].values():
+        if name in skill.get("tags", []):
+            skill["tags"].remove(name)
+    for agent in data["agents"].values():
+        if name in agent.get("tags", []):
+            agent["tags"].remove(name)
+    save_skill_access(data)
+    return {"ok": True}
+
+
+class SkillTagsUpdate(BaseModel):
+    folder: str
+    tags: List[str]
+
+
+@app.put("/api/skill-access/skill-tags")
+async def update_skill_tags(body: SkillTagsUpdate):
+    data = load_skill_access()
+    if body.tags:
+        data["skills"][body.folder] = {"tags": body.tags}
+    else:
+        data["skills"].pop(body.folder, None)
+    save_skill_access(data)
+    return {"ok": True}
+
+
+class AgentTagsUpdate(BaseModel):
+    agent_id: str
+    tags: List[str]
+
+
+@app.put("/api/skill-access/agent-tags")
+async def update_agent_tags(body: AgentTagsUpdate):
+    data = load_skill_access()
+    if body.tags:
+        existing = data["agents"].get(body.agent_id, {})
+        existing["tags"] = body.tags
+        data["agents"][body.agent_id] = existing
+    else:
+        data["agents"].pop(body.agent_id, None)
+    save_skill_access(data)
+    return {"ok": True}
+
+
+class SyncRequest(BaseModel):
+    dry_run: bool = False
+
+
+@app.post("/api/skill-access/sync")
+async def sync_skill_access(body: SyncRequest):
+    """Run the sync script to apply skill-access.json to openclaw.json."""
+    result = run_sync_script(dry_run=body.dry_run)
+    return result
+
+
 # --- Skills ---
+
 
 @app.get("/api/skills")
 async def list_skills(tier: Optional[str] = None, agent: Optional[str] = None):
@@ -531,20 +717,6 @@ async def get_classifications_map():
     return load_classifications_map()
 
 
-class ClassificationUpdate(BaseModel):
-    content: str
-
-
-@app.put("/api/classifications/{name}")
-async def update_classification(name: str, body: ClassificationUpdate):
-    path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
-    if not os.path.exists(path):
-        raise HTTPException(status_code=404, detail="Classification not found")
-    Path(path).write_text(body.content, encoding="utf-8")
-    restart_gateway()
-    return {"ok": True}
-
-
 class AgentClassificationUpdate(BaseModel):
     agent_display_name: str
     classification: str  # "" to unset
@@ -558,6 +730,20 @@ async def assign_classification(body: AgentClassificationUpdate):
     else:
         cls_map.pop(body.agent_display_name, None)
     save_classifications_map(cls_map)
+    restart_gateway()
+    return {"ok": True}
+
+
+class ClassificationUpdate(BaseModel):
+    content: str
+
+
+@app.put("/api/classifications/{name}")
+async def update_classification(name: str, body: ClassificationUpdate):
+    path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Classification not found")
+    Path(path).write_text(body.content, encoding="utf-8")
     restart_gateway()
     return {"ok": True}
 

@@ -18,6 +18,15 @@
     .badge-personal { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
     .badge-partnrup { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
     .badge-unclassified { background: rgba(107, 114, 128, 0.15); color: #9ca3af; }
+    .tag-badge { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 9999px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; }
+    .tag-color-0 { background: rgba(59, 130, 246, 0.15); color: #93c5fd; }
+    .tag-color-1 { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+    .tag-color-2 { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+    .tag-color-3 { background: rgba(251, 146, 60, 0.15); color: #fdba74; }
+    .tag-color-4 { background: rgba(236, 72, 153, 0.15); color: #f9a8d4; }
+    .tag-color-5 { background: rgba(45, 212, 191, 0.15); color: #5eead4; }
+    .tag-color-6 { background: rgba(250, 204, 21, 0.15); color: #fde047; }
+    .tag-color-7 { background: rgba(248, 113, 113, 0.15); color: #fca5a5; }
   </style>
   <script>
     tailwind.config = {
@@ -39,6 +48,8 @@
       <button onclick="navigate('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Dashboard</button>
       <button onclick="navigate('agents')" id="nav-agents" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Agents</button>
       <button onclick="navigate('skills')" id="nav-skills" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Skills</button>
+      <button onclick="navigate('access')" id="nav-access" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Access</button>
+      <button onclick="navigate('groups')" id="nav-groups" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Groups</button>
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
     <div class="ml-auto text-xs text-gray-500" id="status-bar"></div>
@@ -98,7 +109,8 @@
             class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
           <div class="flex gap-1 flex-wrap">
             <button onclick="setSkillTierFilter('')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">All</button>
-            <button onclick="setSkillTierFilter('platform')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Platform</button>
+            <button onclick="setSkillTierFilter('mine')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Mine</button>
+            <button onclick="setSkillTierFilter('platform')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Built-in</button>
             <button onclick="setSkillTierFilter('global')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Global</button>
             <button onclick="setSkillTierFilter('agent')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Per-Agent</button>
           </div>
@@ -121,6 +133,86 @@
         </div>
         <div id="skill-detail" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
         <div id="skill-create" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
+      </div>
+    </div>
+
+    <!-- Access Page -->
+    <div id="page-access" class="page hidden h-full overflow-y-auto">
+      <div class="max-w-6xl mx-auto px-6 py-8">
+        <!-- Header -->
+        <div class="flex items-center justify-between mb-8">
+          <div>
+            <h2 class="text-2xl font-bold">Skill Access Control</h2>
+            <p class="text-sm text-gray-500 mt-1">Tag-based skill visibility. Tag skills and agents, then sync to apply.</p>
+          </div>
+          <div class="flex gap-3">
+            <button onclick="runSync(true)" class="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition">Dry Run</button>
+            <button onclick="runSync(false)" id="sync-apply-btn" class="px-5 py-2 text-sm font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">Sync & Apply</button>
+          </div>
+        </div>
+
+        <!-- Tags Section -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold">Tags</h3>
+            <button onclick="showAddTagModal()" class="text-sm text-blue-400 hover:text-blue-300">+ Add Tag</button>
+          </div>
+          <div id="tags-list" class="flex flex-wrap gap-3"></div>
+        </div>
+
+        <!-- Two Column: Skills & Agents -->
+        <div class="grid grid-cols-2 gap-6 mb-6">
+          <!-- Global Skills Tags -->
+          <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            <h3 class="text-lg font-semibold mb-4">Global Skills</h3>
+            <p class="text-xs text-gray-500 mb-4">Assign tags to control which agents see each global skill</p>
+            <div id="access-skills-list" class="space-y-2"></div>
+          </div>
+
+          <!-- Agent Tags -->
+          <div class="bg-gray-900 rounded-xl border border-gray-800 p-6">
+            <h3 class="text-lg font-semibold mb-4">Agents</h3>
+            <p class="text-xs text-gray-500 mb-4">Assign tags to control which global skills each agent can access</p>
+            <div id="access-agents-list" class="space-y-2"></div>
+          </div>
+        </div>
+
+        <!-- Access Matrix -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-6 mb-6">
+          <h3 class="text-lg font-semibold mb-4">Access Matrix <span class="text-sm font-normal text-gray-500">(global skills × agents)</span></h3>
+          <div id="access-matrix" class="overflow-x-auto"></div>
+        </div>
+
+        <!-- Sync Output -->
+        <div id="sync-output" class="hidden bg-gray-900 rounded-xl border border-gray-800 p-6 mb-6">
+          <h3 class="text-lg font-semibold mb-3">Sync Output</h3>
+          <pre id="sync-output-text" class="text-xs font-mono text-gray-300 bg-gray-950 rounded-lg p-4 overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto"></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Groups Page -->
+    <div id="page-groups" class="page hidden h-full flex">
+      <!-- Groups sidebar -->
+      <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
+        <div class="p-3 space-y-2">
+          <button onclick="showCreateGroup()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Group</button>
+        </div>
+        <div id="groups-sidebar-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5"></div>
+        <div class="p-3 border-t border-gray-800 text-xs text-gray-500" id="groups-count-bar"></div>
+      </aside>
+
+      <!-- Group detail -->
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div id="groups-empty" class="flex-1 flex items-center justify-center text-gray-600">
+          <div class="text-center">
+            <div class="text-5xl mb-4">🏷️</div>
+            <p class="text-lg">Select a group to view or edit</p>
+            <p class="text-sm mt-1">Groups control which skills each agent can access</p>
+          </div>
+        </div>
+        <div id="groups-detail" class="flex-1 overflow-y-auto hidden fade-in"></div>
+        <div id="groups-create" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
       </div>
     </div>
 
@@ -169,6 +261,8 @@ let state = {
   selectedRule: null,
   skillTierFilter: '',
   dirty: false,
+  skillAccess: null,
+  selectedGroup: null,
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -186,14 +280,18 @@ async function api(method, path, body) {
 }
 
 async function loadDashboard() {
+  document.getElementById('status-bar').innerHTML = '<span class="text-gray-500">Loading...</span>';
   state.dashboard = await api('GET', '/api/dashboard');
   state.agents = state.dashboard.agents;
   state.classifications = state.dashboard.classifications;
   state.classificationsMap = state.dashboard.classifications_map;
+  document.getElementById('status-bar').innerHTML = `<span class="text-green-500">${state.agents.length} agents</span>`;
 }
 
 async function loadSkills() {
+  document.getElementById('status-bar').innerHTML = '<span class="text-gray-500">Loading...</span>';
   state.skills = await api('GET', '/api/skills');
+  document.getElementById('status-bar').innerHTML = `<span class="text-green-500">${state.skills.length} skills</span>`;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -209,21 +307,59 @@ async function navigate(page) {
   });
   document.getElementById(`nav-${page}`).className = 'nav-btn px-4 py-2 text-sm font-medium rounded-lg transition bg-gray-800 text-white';
 
-  if (page === 'dashboard') {
-    await loadDashboard();
-    renderDashboard();
-  } else if (page === 'agents') {
-    if (!state.agents.length) await loadDashboard();
-    renderAgentSidebar();
-  } else if (page === 'skills') {
-    await loadSkills();
-    if (!state.agents.length) await loadDashboard();
-    renderSkillSidebar();
-    populateSkillAgentFilter();
-  } else if (page === 'rules') {
-    if (!state.classifications.length) await loadDashboard();
-    renderRulesSidebar();
+  try {
+    if (page === 'dashboard') {
+      await loadDashboard();
+      renderDashboard();
+    } else if (page === 'agents') {
+      if (!state.agents.length) await loadDashboard();
+      renderAgentSidebar();
+    } else if (page === 'skills') {
+      await loadSkills();
+      await loadSkillAccess();
+      if (!state.agents.length) await loadDashboard();
+      renderSkillSidebar();
+      populateSkillAgentFilter();
+    } else if (page === 'access') {
+      await loadSkillAccess();
+      if (!state.skills.length) await loadSkills();
+      if (!state.agents.length) await loadDashboard();
+      renderAccessPage();
+    } else if (page === 'groups') {
+      await loadSkillAccess();
+      if (!state.skills.length) await loadSkills();
+      if (!state.agents.length) await loadDashboard();
+      renderGroupsSidebar();
+    } else if (page === 'rules') {
+      if (!state.classifications.length) await loadDashboard();
+      renderRulesSidebar();
+    }
+  } catch (e) {
+    console.error(`Failed to load ${page}:`, e);
+    showPageError(page, e.message);
   }
+}
+
+function showPageError(page, message) {
+  const containers = {
+    dashboard: 'agent-grid',
+    agents: 'agent-sidebar-list',
+    skills: 'skill-sidebar-list',
+    access: 'tags-list',
+    groups: 'groups-sidebar-list',
+    rules: 'rules-sidebar-list',
+  };
+  const el = document.getElementById(containers[page]);
+  if (el) {
+    el.innerHTML = `
+      <div class="flex flex-col items-center justify-center py-12 px-4 text-center">
+        <div class="text-3xl mb-3">⚠️</div>
+        <div class="text-sm font-medium text-red-400 mb-1">Failed to load data</div>
+        <div class="text-xs text-gray-500 mb-4 max-w-xs">${esc(message || 'Could not connect to the server. Is it running?')}</div>
+        <button onclick="navigate('${page}')" class="px-4 py-2 text-xs font-medium bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition">Retry</button>
+      </div>`;
+  }
+  document.getElementById('status-bar').innerHTML = '<span class="text-red-400">Disconnected</span>';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -257,9 +393,10 @@ function renderDashboard() {
   // Agent cards
   document.getElementById('agent-grid').innerHTML = d.agents.map(a => {
     const emoji = a.identity?.emoji || '🤖';
-    const clsBadge = a.classification
-      ? `<span class="badge-${a.classification} text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">${esc(a.classification)}</span>`
-      : `<span class="badge-unclassified text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">unclassified</span>`;
+    const tagBadgesHtml = (a.agent_tags || []).length
+      ? a.agent_tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('')
+      : `<span class="badge-unclassified text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">no tags</span>`;
+    const clsBadge = tagBadgesHtml;
     const modelShort = (a.model || 'unknown').split('/').pop();
     const toolsBadge = Object.keys(a.tools || {}).length
       ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 font-semibold uppercase">restricted</span>`
@@ -283,7 +420,7 @@ function renderDashboard() {
         </div>
         <div class="flex items-center justify-between text-xs">
           <span class="text-blue-400">${esc(modelShort)}</span>
-          <span class="text-gray-500">${a.skill_count} skill${a.skill_count !== 1 ? 's' : ''}</span>
+          <span class="text-gray-500">${a.skill_count} skill${a.skill_count !== 1 ? 's' : ''}${a.global_skill_count ? ` + ${a.global_skill_count} global` : ''}</span>
         </div>
         ${a.skill_count > 0 ? `<div class="flex flex-wrap gap-1 mt-3">${a.skills.map(s => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(s.folder)}</span>`).join('')}</div>` : ''}
       </div>`;
@@ -338,9 +475,8 @@ function renderAgentSidebar() {
     const active = a.name === state.selectedAgent;
     const emoji = a.identity?.emoji || '🤖';
     const modelShort = (a.model || '').split('/').pop();
-    const clsBadge = a.classification
-      ? `<span class="badge-${a.classification} text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase">${esc(a.classification)}</span>`
-      : '';
+    const agentTagBadges = (a.agent_tags || []).slice(0, 2).map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('');
+    const clsBadge = agentTagBadges;
     return `
       <button onclick="selectAgent('${esc(a.name)}')"
         class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
@@ -371,9 +507,10 @@ async function selectAgent(name) {
   const vibe = a.identity?.vibe || '';
   const creature = a.identity?.creature || '';
   const modelShort = (a.model || '').split('/').pop();
-  const clsBadge = a.classification
-    ? `<span class="badge-${a.classification} text-xs px-2 py-1 rounded font-semibold uppercase">${esc(a.classification)}</span>`
-    : `<span class="badge-unclassified text-xs px-2 py-1 rounded font-semibold uppercase">unclassified</span>`;
+  const detailTagBadges = (a.agent_tags || []).length
+    ? a.agent_tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join(' ')
+    : `<span class="badge-unclassified text-xs px-2 py-1 rounded font-semibold uppercase">no tags</span>`;
+  const clsBadge = detailTagBadges;
 
   const toolsHtml = Object.keys(a.tools || {}).length
     ? `<div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4 mt-4">
@@ -399,6 +536,24 @@ async function selectAgent(name) {
           </div>
         </div>`).join('')
     : '<p class="text-sm text-gray-500 py-4">No per-agent skills configured</p>';
+
+  const globalSkills = a.global_skills || [];
+  const globalSkillsHtml = globalSkills.length
+    ? globalSkills.map(s => {
+        const skillTags = (s.tags || []).map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('');
+        return `
+        <div class="flex items-center justify-between py-2 px-3 bg-amber-500/5 border border-amber-500/10 rounded-lg">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-200">${esc(s.name || s.folder)}</span>
+              ${skillTags}
+            </div>
+            <div class="text-xs text-gray-500 mt-0.5 truncate max-w-lg">${esc((s.description || '').slice(0, 120))}</div>
+          </div>
+          <button onclick="navigate('skills'); setTimeout(() => selectSkill('global/${esc(s.folder)}'), 100)" class="text-xs text-amber-400 hover:text-amber-300 shrink-0">View</button>
+        </div>`;
+      }).join('')
+    : '<p class="text-sm text-gray-500 py-4">No global skills available — assign matching tags on the <a href="#" onclick="navigate(\'access\'); return false" class="text-blue-400 hover:underline">Access</a> page</p>';
 
   detail.innerHTML = `
     <div class="p-8 space-y-6">
@@ -434,6 +589,15 @@ async function selectAgent(name) {
           <button onclick="showSkillCreateForAgent('${esc(a.name)}')" class="text-xs text-blue-400 hover:text-blue-300">+ Add Skill</button>
         </div>
         <div class="space-y-2">${skillsHtml}</div>
+      </div>
+
+      <!-- Global Skills -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-medium text-gray-400">Global Skills (${globalSkills.length})</div>
+          <span class="text-xs text-gray-600">Via tags: ${a.agent_tags.length ? a.agent_tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join(' ') : '<span class="text-gray-500">none</span>'}</span>
+        </div>
+        <div class="space-y-2">${globalSkillsHtml}</div>
       </div>
 
       <!-- Editable sections -->
@@ -485,8 +649,11 @@ function populateSkillAgentFilter() {
 
 function setSkillTierFilter(tier) {
   state.skillTierFilter = tier;
+  const labelMap = { '': 'all', 'mine': 'mine', 'platform': 'built-in', 'global': 'global', 'agent': 'per-agent' };
+  const activeLabel = labelMap[tier] || tier;
   document.querySelectorAll('.skill-tier-btn').forEach(b => {
-    b.className = 'skill-tier-btn text-xs px-2 py-1 rounded ' + (b.textContent.toLowerCase().includes(tier || 'all') ? 'bg-gray-700 text-gray-300' : 'bg-gray-800 text-gray-500');
+    const match = b.textContent.toLowerCase().trim() === activeLabel;
+    b.className = 'skill-tier-btn text-xs px-2 py-1 rounded ' + (match ? 'bg-gray-700 text-gray-300' : 'bg-gray-800 text-gray-500');
   });
   renderSkillSidebar();
 }
@@ -498,7 +665,11 @@ function renderSkillSidebar() {
 
   let filtered = state.skills;
   if (query) filtered = filtered.filter(s => `${s.name} ${s.folder} ${s.description}`.toLowerCase().includes(query));
-  if (tierFilter) filtered = filtered.filter(s => s.tier === tierFilter);
+  if (tierFilter === 'mine') {
+    filtered = filtered.filter(s => s.tier === 'global' || s.tier === 'agent');
+  } else if (tierFilter) {
+    filtered = filtered.filter(s => s.tier === tierFilter);
+  }
   if (agentFilter) filtered = filtered.filter(s => s.agent === agentFilter);
 
   // Group by tier then agent
@@ -526,10 +697,17 @@ function renderSkillSidebar() {
     html += `<div class="pt-3 pb-1 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">${label}</div>`;
     for (const s of items) {
       const active = s.id === state.selectedSkill;
+      const tagBadges = (s.tags && s.tags.length)
+        ? s.tags.map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>`).join('')
+        : (s.tier === 'global' ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-700/50 text-gray-500">untagged</span>' : '');
+      const accessBadge = tagBadges;
       html += `
         <button onclick="selectSkill('${esc(s.id)}')"
           class="w-full text-left px-3 py-2 rounded-lg text-sm transition ${tierClass} ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
-          <div class="font-medium truncate">${esc(s.name || s.folder)}</div>
+          <div class="flex items-center gap-2">
+            <span class="font-medium truncate">${esc(s.name || s.folder)}</span>
+            ${accessBadge}
+          </div>
           <div class="text-xs text-gray-500 truncate mt-0.5">${esc((s.description || '').slice(0, 80))}</div>
         </button>`;
     }
@@ -554,7 +732,7 @@ function selectSkill(id) {
 
   const tierColor = s.tier === 'platform' ? 'blue' : s.tier === 'global' ? 'amber' : 'green';
   const isEditable = s.tier !== 'platform';
-  const deleteBtn = isEditable && s.tier === 'agent'
+  const deleteBtn = isEditable && (s.tier === 'agent' || s.tier === 'global')
     ? `<button onclick="deleteSkill('${esc(s.agent || '__global__')}', '${esc(s.folder)}')" class="px-4 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition">Delete</button>`
     : '';
   const saveBtn = isEditable
@@ -563,6 +741,21 @@ function selectSkill(id) {
   const copyBtn = s.tier === 'agent'
     ? `<button onclick="showCopyMoveModal('${esc(s.agent)}', '${esc(s.folder)}')" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Copy/Move</button>`
     : '';
+
+  const tagsSection = s.tier === 'global'
+    ? `<div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Tags</label>
+        <div class="flex items-center gap-2 flex-wrap">
+          ${(s.tags || []).map(t => `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)} <button onclick="removeSkillTag('${esc(s.folder)}', '${esc(t)}')" class="ml-1 opacity-60 hover:opacity-100">&times;</button></span>`).join('')}
+          <button onclick="showAddSkillTagDropdown('${esc(s.folder)}')" class="text-xs text-blue-400 hover:text-blue-300 px-2 py-1">+ tag</button>
+          <select id="add-skill-tag-select" class="hidden px-2 py-1 bg-gray-800 border border-gray-700 rounded text-xs" onchange="addSkillTagFromSelect('${esc(s.folder)}')">
+            <option value="">Select tag...</option>
+          </select>
+        </div>
+        <p class="text-xs text-gray-600 mt-2">Agents with matching tags will see this skill. Manage tags on the <a href="#" onclick="navigate('access'); return false" class="text-blue-400 hover:underline">Access</a> page.</p>
+      </div>`
+    : '';
+  const accessDropdown = tagsSection;
 
   detail.innerHTML = `
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
@@ -580,6 +773,7 @@ function selectSkill(id) {
       </div>
     </header>
     <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      ${accessDropdown}
       <div>
         <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
         <input id="sedit-name" type="text" value="${esc(s.name)}" oninput="markSkillDirty()" ${!isEditable ? 'disabled' : ''}
@@ -603,6 +797,8 @@ function markSkillDirty() {
   const btn = document.getElementById('skill-save-btn');
   if (btn) btn.disabled = false;
 }
+
+// updateSkillAccess removed — replaced by tag-based system on Access page
 
 async function saveCurrentSkill() {
   const s = state.skills.find(s => s.id === state.selectedSkill);
@@ -911,6 +1107,498 @@ async function removeAgentFromClassification(agentName, clsName) {
     selectRule(clsName);
   } catch (e) {
     toast(e.message, 'red');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Groups Page
+// ═══════════════════════════════════════════════════════════
+
+function renderGroupsSidebar() {
+  const sa = state.skillAccess;
+  if (!sa) return;
+  const tagNames = Object.keys(sa.tags || {}).sort();
+  const list = document.getElementById('groups-sidebar-list');
+
+  list.innerHTML = tagNames.map(t => {
+    const active = t === state.selectedGroup;
+    const skillCount = Object.values(sa.skills || {}).filter(s => (s.tags || []).includes(t)).length;
+    const agentCount = Object.values(sa.agents || {}).filter(a => (a.tags || []).includes(t)).length;
+    return `
+      <button onclick="selectGroup('${esc(t)}')" 
+        class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
+        <div class="flex items-center gap-2">
+          <span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>
+        </div>
+        <div class="flex justify-between text-xs text-gray-500 mt-1 pl-1">
+          <span>${skillCount} skill${skillCount !== 1 ? 's' : ''}</span>
+          <span>${agentCount} agent${agentCount !== 1 ? 's' : ''}</span>
+        </div>
+      </button>`;
+  }).join('');
+
+  if (!tagNames.length) {
+    list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No groups yet. Create one to get started.</div>';
+  }
+
+  document.getElementById('groups-count-bar').textContent = `${tagNames.length} group${tagNames.length !== 1 ? 's' : ''}`;
+}
+
+function selectGroup(name) {
+  state.selectedGroup = name;
+  renderGroupsSidebar();
+  const sa = state.skillAccess;
+  if (!sa || !sa.tags[name]) return;
+
+  document.getElementById('groups-empty').classList.add('hidden');
+  document.getElementById('groups-create').classList.add('hidden');
+  const detail = document.getElementById('groups-detail');
+  detail.classList.remove('hidden');
+
+  const tag = sa.tags[name];
+  const tagSkills = Object.entries(sa.skills || {}).filter(([_, s]) => (s.tags || []).includes(name));
+  const tagAgents = Object.entries(sa.agents || {}).filter(([_, a]) => (a.tags || []).includes(name));
+
+  // Get all global skills for the "add skill" dropdown
+  const globalSkills = (state.skills || []).filter(s => s.tier === 'global');
+  const assignedSkillFolders = tagSkills.map(([f]) => f);
+  const unassignedSkills = globalSkills.filter(s => !assignedSkillFolders.includes(s.folder));
+
+  // Get all agents for the "add agent" dropdown
+  const allAgents = state.agents || [];
+  const assignedAgentIds = tagAgents.map(([id]) => id);
+  const unassignedAgents = allAgents.filter(a => !assignedAgentIds.includes(a.name));
+
+  const skillsHtml = tagSkills.length
+    ? tagSkills.map(([folder]) => {
+        const skill = globalSkills.find(s => s.folder === folder);
+        return `
+          <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded-lg">
+            <div>
+              <span class="text-sm font-medium text-gray-200">${esc(skill?.name || folder)}</span>
+              <span class="text-xs text-gray-500 ml-2">${esc((skill?.description || '').slice(0, 80))}</span>
+            </div>
+            <button onclick="removeAccessSkillTag('${esc(folder)}', '${esc(name)}'); setTimeout(() => selectGroup('${esc(name)}'), 300)" 
+              class="text-xs text-red-400 hover:text-red-300 shrink-0">Remove</button>
+          </div>`;
+      }).join('')
+    : '<p class="text-sm text-gray-500 py-2">No global skills in this group</p>';
+
+  const agentsHtml = tagAgents.length
+    ? tagAgents.map(([agentId]) => {
+        const agent = allAgents.find(a => a.name === agentId);
+        const emoji = agent?.identity?.emoji || '\ud83e\udd16';
+        return `
+          <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded-lg">
+            <div class="flex items-center gap-2">
+              <span>${emoji}</span>
+              <span class="text-sm font-medium text-gray-200">${esc(agent?.display_name || agentId)}</span>
+              <span class="text-xs text-gray-500">${esc(agentId)}</span>
+            </div>
+            <button onclick="removeAccessAgentTag('${esc(agentId)}', '${esc(name)}'); setTimeout(() => selectGroup('${esc(name)}'), 300)" 
+              class="text-xs text-red-400 hover:text-red-300 shrink-0">Remove</button>
+          </div>`;
+      }).join('')
+    : '<p class="text-sm text-gray-500 py-2">No agents in this group</p>';
+
+  detail.innerHTML = `
+    <div class="p-8 space-y-6">
+      <!-- Header -->
+      <div class="flex items-start justify-between">
+        <div class="flex items-center gap-4">
+          <span class="tag-badge tag-color-${getTagColorIdx(name)}" style="font-size: 16px; padding: 6px 16px;">${esc(name)}</span>
+        </div>
+        <button onclick="if(confirm('Delete group \\"${esc(name)}\\"? It will be removed from all skills and agents.')) { deleteTag('${esc(name)}'); }" 
+          class="px-4 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition">Delete Group</button>
+      </div>
+
+      <!-- Description -->
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
+        <div class="flex gap-2">
+          <input id="group-desc-input" type="text" value="${esc(tag.description || '')}" 
+            placeholder="What is this group for?"
+            class="flex-1 px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+          <button onclick="saveGroupDesc('${esc(name)}')" 
+            class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">Save</button>
+        </div>
+      </div>
+
+      <!-- Skills in group -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-medium text-gray-400">Skills (${tagSkills.length})</div>
+          ${unassignedSkills.length ? `
+            <select onchange="if(this.value) { addAccessSkillTag(this.value, '${esc(name)}'); setTimeout(() => selectGroup('${esc(name)}'), 300); this.value=''; }"
+              class="text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded text-gray-400 cursor-pointer">
+              <option value="">+ Add skill...</option>
+              ${unassignedSkills.map(s => `<option value="${esc(s.folder)}">${esc(s.name || s.folder)}</option>`).join('')}
+            </select>` : ''}
+        </div>
+        <div class="space-y-2">${skillsHtml}</div>
+      </div>
+
+      <!-- Agents in group -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-medium text-gray-400">Agents (${tagAgents.length})</div>
+          ${unassignedAgents.length ? `
+            <select onchange="if(this.value) { addAccessAgentTag(this.value, '${esc(name)}'); setTimeout(() => selectGroup('${esc(name)}'), 300); this.value=''; }"
+              class="text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded text-gray-400 cursor-pointer">
+              <option value="">+ Add agent...</option>
+              ${unassignedAgents.map(a => `<option value="${esc(a.name)}">${esc(a.display_name || a.name)}</option>`).join('')}
+            </select>` : ''}
+        </div>
+        <div class="space-y-2">${agentsHtml}</div>
+      </div>
+    </div>`;
+}
+
+async function saveGroupDesc(name) {
+  const desc = document.getElementById('group-desc-input').value;
+  const sa = state.skillAccess;
+  sa.tags[name] = { ...sa.tags[name], description: desc };
+  try {
+    await api('PUT', '/api/skill-access', sa);
+    toast('Description saved', 'green');
+    state.skillAccess = sa;
+    renderGroupsSidebar();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+function showCreateGroup() {
+  state.selectedGroup = null;
+  renderGroupsSidebar();
+  document.getElementById('groups-empty').classList.add('hidden');
+  document.getElementById('groups-detail').classList.add('hidden');
+  const panel = document.getElementById('groups-create');
+  panel.classList.remove('hidden');
+
+  panel.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <h2 class="text-xl font-semibold">Create New Group</h2>
+      <div class="flex gap-2">
+        <button onclick="hideCreateGroup()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
+        <button onclick="createGroupFromForm()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">Create</button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Group Name</label>
+        <input id="gcreate-name" type="text" placeholder="e.g., devops, marketing, analytics" 
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+        <p class="text-xs text-gray-600 mt-1">Lowercase, no spaces. This becomes the tag name.</p>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
+        <input id="gcreate-desc" type="text" placeholder="What is this group for?" 
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+      </div>
+    </div>`;
+}
+
+function hideCreateGroup() {
+  document.getElementById('groups-create').classList.add('hidden');
+  document.getElementById('groups-empty').classList.remove('hidden');
+}
+
+async function createGroupFromForm() {
+  const name = (document.getElementById('gcreate-name').value || '').toLowerCase().trim().replace(/\s+/g, '-');
+  const desc = document.getElementById('gcreate-desc').value.trim();
+  if (!name) { toast('Group name is required', 'red'); return; }
+  try {
+    await api('POST', '/api/skill-access/tags', { name, description: desc });
+    toast(`Group "${name}" created`, 'green');
+    await loadSkillAccess();
+    hideCreateGroup();
+    renderGroupsSidebar();
+    selectGroup(name);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Access Page
+// ═══════════════════════════════════════════════════════════
+
+// Tag color helper
+const TAG_COLORS = 8;
+function getTagColorIdx(tagName) {
+  let hash = 0;
+  for (let i = 0; i < tagName.length; i++) hash = ((hash << 5) - hash) + tagName.charCodeAt(i);
+  return Math.abs(hash) % TAG_COLORS;
+}
+
+async function loadSkillAccess() {
+  state.skillAccess = await api('GET', '/api/skill-access');
+}
+
+function renderAccessPage() {
+  const sa = state.skillAccess;
+  if (!sa) return;
+
+  // Render tags
+  const tagsEl = document.getElementById('tags-list');
+  const tagNames = Object.keys(sa.tags || {}).sort();
+  if (tagNames.length === 0) {
+    tagsEl.innerHTML = '<p class="text-sm text-gray-500">No tags defined yet. Add one to get started.</p>';
+  } else {
+    tagsEl.innerHTML = tagNames.map(t => {
+      const desc = sa.tags[t]?.description || '';
+      const skillCount = Object.values(sa.skills || {}).filter(s => (s.tags || []).includes(t)).length;
+      const agentCount = Object.values(sa.agents || {}).filter(a => (a.tags || []).includes(t)).length;
+      return `
+        <div class="bg-gray-800 rounded-lg px-4 py-3 flex items-center gap-3 group">
+          <span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)}</span>
+          <span class="text-xs text-gray-500">${esc(desc)}</span>
+          <span class="text-xs text-gray-600 ml-auto">${skillCount} skill${skillCount !== 1 ? 's' : ''} · ${agentCount} agent${agentCount !== 1 ? 's' : ''}</span>
+          <button onclick="deleteTag('${esc(t)}')" class="text-gray-600 hover:text-red-400 text-xs opacity-0 group-hover:opacity-100 transition">✕</button>
+        </div>`;
+    }).join('');
+  }
+
+  // Render global skills with tag assignment
+  const skillsEl = document.getElementById('access-skills-list');
+  const globalSkills = (state.skills || []).filter(s => s.tier === 'global');
+  if (globalSkills.length === 0) {
+    skillsEl.innerHTML = '<p class="text-sm text-gray-500">No global skills. Add skills to ~/.openclaw/skills/</p>';
+  } else {
+    skillsEl.innerHTML = globalSkills.map(s => {
+      const skillTags = sa.skills?.[s.folder]?.tags || [];
+      const tagBadges = skillTags.map(t =>
+        `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)} <button onclick="removeAccessSkillTag('${esc(s.folder)}', '${esc(t)}')" class="ml-0.5 opacity-60 hover:opacity-100">&times;</button></span>`
+      ).join('');
+      return `
+        <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded-lg">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="text-sm font-medium text-gray-200 shrink-0">${esc(s.name || s.folder)}</span>
+            ${tagBadges}
+            <div class="relative inline-block">
+              <select onchange="addAccessSkillTag('${esc(s.folder)}', this.value); this.value='';"
+                class="text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded text-gray-400 cursor-pointer">
+                <option value="">+ tag</option>
+                ${tagNames.filter(t => !skillTags.includes(t)).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+              </select>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+  }
+
+  // Render agents with tag assignment
+  const agentsEl = document.getElementById('access-agents-list');
+  const agents = state.agents || [];
+  agentsEl.innerHTML = agents.map(a => {
+    const agentTags = sa.agents?.[a.name]?.tags || [];
+    const emoji = a.identity?.emoji || '🤖';
+    const tagBadges = agentTags.map(t =>
+      `<span class="tag-badge tag-color-${getTagColorIdx(t)}">${esc(t)} <button onclick="removeAccessAgentTag('${esc(a.name)}', '${esc(t)}')" class="ml-0.5 opacity-60 hover:opacity-100">&times;</button></span>`
+    ).join('');
+    return `
+      <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded-lg">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-sm shrink-0">${emoji}</span>
+          <span class="text-sm font-medium text-gray-200 shrink-0">${esc(a.display_name)}</span>
+          ${tagBadges}
+          <div class="relative inline-block">
+            <select onchange="addAccessAgentTag('${esc(a.name)}', this.value); this.value='';"
+              class="text-xs px-2 py-1 bg-gray-700 border border-gray-600 rounded text-gray-400 cursor-pointer">
+              <option value="">+ tag</option>
+              ${tagNames.filter(t => !agentTags.includes(t)).map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // Render access matrix
+  renderAccessMatrix(globalSkills, agents, sa);
+}
+
+function renderAccessMatrix(globalSkills, agents, sa) {
+  const el = document.getElementById('access-matrix');
+  if (!globalSkills.length || !agents.length) {
+    el.innerHTML = '<p class="text-sm text-gray-500">Need both global skills and agents to show the matrix</p>';
+    return;
+  }
+
+  let html = '<table class="text-xs w-full"><thead><tr><th class="text-left px-2 py-1 text-gray-500 font-medium sticky left-0 bg-gray-900">Skill</th>';
+  agents.forEach(a => {
+    const emoji = a.identity?.emoji || '🤖';
+    html += `<th class="px-2 py-1 text-gray-500 font-medium text-center" style="min-width: 36px;">${emoji}<br>${esc(a.name)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  globalSkills.forEach(s => {
+    const skillTags = new Set(sa.skills?.[s.folder]?.tags || []);
+    html += `<tr class="hover:bg-gray-800/50"><td class="px-2 py-1.5 text-gray-300 font-medium sticky left-0 bg-gray-900">${esc(s.name || s.folder)}</td>`;
+    agents.forEach(a => {
+      const agentTags = new Set(sa.agents?.[a.name]?.tags || []);
+      // Check if there's tag overlap
+      const hasAccess = skillTags.size === 0 || [...skillTags].some(t => agentTags.has(t));
+      html += `<td class="text-center px-2 py-1.5">${hasAccess ? '<span class="text-green-400">●</span>' : '<span class="text-gray-700">·</span>'}</td>`;
+    });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+// Tag CRUD
+function showAddTagModal() {
+  const name = prompt('Tag name (e.g., personal, partnrup, travel):');
+  if (!name) return;
+  const desc = prompt('Description (optional):') || '';
+  createTag(name.toLowerCase().trim(), desc);
+}
+
+async function createTag(name, description) {
+  try {
+    await api('POST', '/api/skill-access/tags', { name, description });
+    toast(`Tag "${name}" created`, 'green');
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function deleteTag(name) {
+  if (!confirm(`Delete tag "${name}"? It will be removed from all skills and agents.`)) return;
+  try {
+    await api('DELETE', `/api/skill-access/tags/${name}`);
+    toast(`Tag "${name}" deleted`, 'green');
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// Skill tag management
+async function addAccessSkillTag(folder, tag) {
+  if (!tag) return;
+  const sa = state.skillAccess;
+  const current = sa.skills?.[folder]?.tags || [];
+  if (current.includes(tag)) return;
+  try {
+    await api('PUT', '/api/skill-access/skill-tags', { folder, tags: [...current, tag] });
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function removeAccessSkillTag(folder, tag) {
+  const sa = state.skillAccess;
+  const current = (sa.skills?.[folder]?.tags || []).filter(t => t !== tag);
+  try {
+    await api('PUT', '/api/skill-access/skill-tags', { folder, tags: current });
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// Agent tag management
+async function addAccessAgentTag(agentId, tag) {
+  if (!tag) return;
+  const sa = state.skillAccess;
+  const current = sa.agents?.[agentId]?.tags || [];
+  if (current.includes(tag)) return;
+  try {
+    await api('PUT', '/api/skill-access/agent-tags', { agent_id: agentId, tags: [...current, tag] });
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function removeAccessAgentTag(agentId, tag) {
+  const sa = state.skillAccess;
+  const current = (sa.agents?.[agentId]?.tags || []).filter(t => t !== tag);
+  try {
+    await api('PUT', '/api/skill-access/agent-tags', { agent_id: agentId, tags: current });
+    await loadSkillAccess();
+    renderAccessPage();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// Skill detail tag management (from skills page)
+async function removeSkillTag(folder, tag) {
+  const sa = state.skillAccess || await api('GET', '/api/skill-access');
+  const current = (sa.skills?.[folder]?.tags || []).filter(t => t !== tag);
+  try {
+    await api('PUT', '/api/skill-access/skill-tags', { folder, tags: current });
+    // Reload skills to reflect tag changes
+    await loadSkills();
+    state.skillAccess = await api('GET', '/api/skill-access');
+    selectSkill(state.selectedSkill);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+function showAddSkillTagDropdown(folder) {
+  const sel = document.getElementById('add-skill-tag-select');
+  if (!sel) return;
+  const sa = state.skillAccess || {};
+  const currentTags = sa.skills?.[folder]?.tags || [];
+  const allTags = Object.keys(sa.tags || {}).sort();
+  sel.innerHTML = '<option value="">Select tag...</option>' +
+    allTags.filter(t => !currentTags.includes(t)).map(t => `<option value="${t}">${t}</option>`).join('');
+  sel.classList.remove('hidden');
+}
+
+async function addSkillTagFromSelect(folder) {
+  const sel = document.getElementById('add-skill-tag-select');
+  const tag = sel.value;
+  if (!tag) return;
+  sel.classList.add('hidden');
+  const sa = state.skillAccess || await api('GET', '/api/skill-access');
+  const current = sa.skills?.[folder]?.tags || [];
+  if (current.includes(tag)) return;
+  try {
+    await api('PUT', '/api/skill-access/skill-tags', { folder, tags: [...current, tag] });
+    await loadSkills();
+    state.skillAccess = await api('GET', '/api/skill-access');
+    selectSkill(state.selectedSkill);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// Sync
+async function runSync(dryRun) {
+  const btn = document.getElementById('sync-apply-btn');
+  btn.disabled = true;
+  btn.textContent = dryRun ? 'Running dry run...' : 'Syncing...';
+  try {
+    const result = await api('POST', '/api/skill-access/sync', { dry_run: dryRun });
+    const outputDiv = document.getElementById('sync-output');
+    const outputText = document.getElementById('sync-output-text');
+    outputDiv.classList.remove('hidden');
+    if (result.ok) {
+      outputText.textContent = result.stdout || 'No output';
+      if (result.stderr) outputText.textContent += '\n\nSTDERR:\n' + result.stderr;
+      toast(dryRun ? 'Dry run complete' : 'Sync complete — gateway restart may be needed', 'green');
+    } else {
+      outputText.textContent = result.error || result.stderr || 'Unknown error';
+      toast('Sync failed', 'red');
+    }
+  } catch (e) {
+    toast(e.message, 'red');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sync & Apply';
   }
 }
 
