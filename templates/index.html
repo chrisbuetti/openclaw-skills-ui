@@ -3,630 +3,951 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>OpenClaw Skills Manager</title>
+  <title>OCPlatform Manager</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    /* Custom scrollbar */
-    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
     textarea { tab-size: 2; }
+    .fade-in { animation: fadeIn 0.15s ease-in; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+    .tier-platform { border-left: 3px solid #3b82f6; }
+    .tier-global { border-left: 3px solid #f59e0b; }
+    .tier-agent { border-left: 3px solid #10b981; }
+    .badge-personal { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+    .badge-partnrup { background: rgba(168, 85, 247, 0.15); color: #c084fc; }
+    .badge-unclassified { background: rgba(107, 114, 128, 0.15); color: #9ca3af; }
   </style>
   <script>
     tailwind.config = {
-      theme: {
-        extend: {
-          colors: {
-            claw: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#3b82f6', 600: '#2563eb', 700: '#1d4ed8', 800: '#1e3a5f', 900: '#0f172a' }
-          }
-        }
-      }
+      theme: { extend: { colors: {
+        surface: { 50: '#f8fafc', 900: '#0f172a', 800: '#1e293b', 700: '#334155' }
+      }}}
     }
   </script>
 </head>
-<body class="h-full bg-gray-950 text-gray-100 flex">
+<body class="h-full bg-gray-950 text-gray-100">
 
-  <!-- Sidebar -->
-  <aside id="sidebar" class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col h-screen shrink-0">
-    <div class="p-5 border-b border-gray-800">
-      <h1 class="text-lg font-semibold tracking-tight flex items-center gap-2">
-        <span class="text-blue-400">&#9670;</span> OpenClaw Manager
-      </h1>
+  <!-- Top Nav -->
+  <nav class="h-14 bg-gray-900 border-b border-gray-800 flex items-center px-6 shrink-0 fixed top-0 left-0 right-0 z-50">
+    <div class="flex items-center gap-3">
+      <span class="text-blue-400 text-xl">◆</span>
+      <span class="text-lg font-semibold tracking-tight">OpenClaw Manager</span>
     </div>
-
-    <!-- Tabs -->
-    <div class="flex border-b border-gray-800">
-      <button id="tab-skills" onclick="switchTab('skills')"
-        class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400">Skills</button>
-      <button id="tab-agents" onclick="switchTab('agents')"
-        class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300">Agents</button>
-      <button id="tab-classifications" onclick="switchTab('classifications')"
-        class="flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300">Rules</button>
+    <div class="flex ml-8 gap-1">
+      <button onclick="navigate('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Dashboard</button>
+      <button onclick="navigate('agents')" id="nav-agents" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Agents</button>
+      <button onclick="navigate('skills')" id="nav-skills" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Skills</button>
+      <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
+    <div class="ml-auto text-xs text-gray-500" id="status-bar"></div>
+  </nav>
 
-    <!-- Skills sidebar content -->
-    <div id="sidebar-skills">
-      <div class="p-3">
-        <button onclick="showCreate()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">
-          + New Skill
-        </button>
-      </div>
+  <!-- Content -->
+  <div class="pt-14 h-full">
 
-      <div class="px-3 pb-2">
-        <input id="search" type="text" placeholder="Filter skills..." oninput="filterSkills()"
-          class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-      </div>
+    <!-- Dashboard Page -->
+    <div id="page-dashboard" class="page h-full overflow-y-auto">
+      <div class="max-w-7xl mx-auto px-6 py-8">
+        <!-- Stats Cards -->
+        <div class="grid grid-cols-4 gap-4 mb-8" id="stats-cards"></div>
 
-      <nav id="skill-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
-      </nav>
-    </div>
+        <!-- Agent Grid -->
+        <h2 class="text-lg font-semibold mb-4">Agents</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8" id="agent-grid"></div>
 
-    <!-- Agents sidebar content -->
-    <div id="sidebar-agents" class="hidden">
-      <div class="px-3 py-3 pb-2">
-        <input id="agent-search" type="text" placeholder="Filter agents..." oninput="renderAgentList()"
-          class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-      </div>
-
-      <nav id="agent-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
-      </nav>
-    </div>
-
-    <!-- Classifications sidebar content -->
-    <div id="sidebar-classifications" class="hidden">
-      <div class="px-3 py-3 pb-2">
-        <p class="text-xs text-gray-500 px-1">Classification rules applied to agent groups</p>
-      </div>
-      <nav id="classification-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5">
-      </nav>
-    </div>
-  </aside>
-
-  <!-- Main Content -->
-  <main class="flex-1 flex flex-col h-screen overflow-hidden">
-
-    <!-- Empty state -->
-    <div id="empty-state" class="flex-1 flex items-center justify-center text-gray-600">
-      <div class="text-center">
-        <div class="text-5xl mb-4">&#9670;</div>
-        <p class="text-lg">Select a skill to view or edit</p>
-        <p class="text-sm mt-1">Or create a new one from the sidebar</p>
-      </div>
-    </div>
-
-    <!-- View / Edit Panel -->
-    <div id="edit-panel" class="flex-1 flex flex-col overflow-hidden hidden">
-      <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
-        <div>
-          <h2 id="panel-title" class="text-xl font-semibold"></h2>
-          <p id="panel-meta" class="text-sm text-gray-500 mt-0.5"></p>
-        </div>
-        <div class="flex gap-2">
-          <button onclick="deleteSkill()" class="px-4 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition">Delete</button>
-          <button onclick="saveSkill()" id="save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
-        </div>
-      </header>
-
-      <div class="flex-1 overflow-y-auto p-8 space-y-6">
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
-          <input id="edit-name" type="text" oninput="markDirty()"
-            class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
-          <textarea id="edit-description" rows="3" oninput="markDirty()"
-            class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"></textarea>
-        </div>
-        <div class="flex-1 flex flex-col">
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Instructions (Markdown)</label>
-          <textarea id="edit-instructions" oninput="markDirty()"
-            class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
-            style="min-height: 350px"></textarea>
+        <!-- Skill Matrix -->
+        <h2 class="text-lg font-semibold mb-4">Skill Matrix <span class="text-sm font-normal text-gray-500">(per-agent skills only)</span></h2>
+        <div class="overflow-x-auto bg-gray-900 rounded-xl border border-gray-800">
+          <div id="skill-matrix" class="p-4"></div>
         </div>
       </div>
     </div>
 
-    <!-- Create Panel -->
-    <div id="create-panel" class="flex-1 flex flex-col overflow-hidden hidden">
-      <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
-        <h2 class="text-xl font-semibold">Create New Skill</h2>
-        <div class="flex gap-2">
-          <button onclick="hideCreate()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
-          <button onclick="createSkill()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">Create Skill</button>
+    <!-- Agents Page -->
+    <div id="page-agents" class="page hidden h-full flex">
+      <!-- Agent list sidebar -->
+      <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
+        <div class="p-3">
+          <input id="agent-filter" type="text" placeholder="Filter agents..." oninput="renderAgentSidebar()"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
         </div>
-      </header>
+        <div id="agent-sidebar-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5"></div>
+      </aside>
 
-      <div class="flex-1 overflow-y-auto p-8 space-y-6">
-        <div class="grid grid-cols-2 gap-4">
-          <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1.5">Workspace</label>
-            <select id="create-workspace"
-              class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
-            </select>
-          </div>
-          <div>
-            <label class="block text-sm font-medium text-gray-400 mb-1.5">Folder Name</label>
-            <input id="create-folder" type="text" placeholder="my-skill"
-              class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+      <!-- Agent detail -->
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div id="agent-empty" class="flex-1 flex items-center justify-center text-gray-600">
+          <div class="text-center">
+            <div class="text-5xl mb-4">🤖</div>
+            <p class="text-lg">Select an agent</p>
           </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
-          <input id="create-name" type="text" placeholder="Human-readable name"
-            class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
-          <textarea id="create-description" rows="3" placeholder="When should this skill be triggered?"
-            class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"></textarea>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Instructions (Markdown)</label>
-          <textarea id="create-instructions" rows="12" placeholder="# My Skill&#10;&#10;Instructions for the agent..."
-            class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
-            style="min-height: 300px"></textarea>
-        </div>
+        <div id="agent-detail" class="flex-1 overflow-y-auto hidden fade-in"></div>
       </div>
     </div>
 
-    <!-- SOUL Edit Panel -->
-    <div id="soul-panel" class="flex-1 flex flex-col overflow-hidden hidden">
-      <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
-        <div>
-          <h2 id="soul-title" class="text-xl font-semibold"></h2>
-          <p id="soul-meta" class="text-sm text-gray-500 mt-0.5"></p>
+    <!-- Skills Page -->
+    <div id="page-skills" class="page hidden h-full flex">
+      <!-- Skills sidebar -->
+      <aside class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
+        <div class="p-3 space-y-2">
+          <button onclick="showSkillCreate()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Skill</button>
+          <input id="skill-filter" type="text" placeholder="Filter skills..." oninput="renderSkillSidebar()"
+            class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+          <div class="flex gap-1 flex-wrap">
+            <button onclick="setSkillTierFilter('')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">All</button>
+            <button onclick="setSkillTierFilter('platform')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Platform</button>
+            <button onclick="setSkillTierFilter('global')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Global</button>
+            <button onclick="setSkillTierFilter('agent')" class="skill-tier-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Per-Agent</button>
+          </div>
+          <select id="skill-agent-filter" onchange="renderSkillSidebar()" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+            <option value="">All agents</option>
+          </select>
         </div>
-        <div class="flex gap-2">
-          <button onclick="saveSoul()" id="soul-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
-        </div>
-      </header>
+        <div id="skill-sidebar-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5"></div>
+        <div class="p-3 border-t border-gray-800 text-xs text-gray-500" id="skill-count-bar"></div>
+      </aside>
 
-      <div class="flex-1 overflow-y-auto p-8">
-        <div class="flex-1 flex flex-col">
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">SOUL.md</label>
-          <textarea id="edit-soul" oninput="markSoulDirty()"
-            class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
-            style="min-height: 500px"></textarea>
+      <!-- Skill detail -->
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div id="skill-empty" class="flex-1 flex items-center justify-center text-gray-600">
+          <div class="text-center">
+            <div class="text-5xl mb-4">⚡</div>
+            <p class="text-lg">Select a skill to view or edit</p>
+            <p class="text-sm mt-1">Or create a new one from the sidebar</p>
+          </div>
         </div>
+        <div id="skill-detail" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
+        <div id="skill-create" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
       </div>
     </div>
 
-    <!-- Classification Edit Panel -->
-    <div id="classification-panel" class="flex-1 flex flex-col overflow-hidden hidden">
-      <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
-        <div>
-          <h2 id="cls-title" class="text-xl font-semibold"></h2>
-          <p id="cls-meta" class="text-sm text-gray-500 mt-0.5"></p>
+    <!-- Rules Page -->
+    <div id="page-rules" class="page hidden h-full flex">
+      <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
+        <div class="p-3">
+          <p class="text-xs text-gray-500 px-1">Classification rules define agent behavior boundaries</p>
         </div>
-        <div class="flex gap-2">
-          <button onclick="saveClassification()" id="cls-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
-        </div>
-      </header>
+        <div id="rules-sidebar-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5"></div>
+      </aside>
 
-      <div class="flex-1 overflow-y-auto p-8 space-y-6">
-        <div>
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Agents in this classification</label>
-          <div id="cls-agents" class="flex flex-wrap gap-2 mb-4"></div>
+      <div class="flex-1 overflow-hidden flex flex-col">
+        <div id="rules-empty" class="flex-1 flex items-center justify-center text-gray-600">
+          <div class="text-center">
+            <div class="text-5xl mb-4">🏷️</div>
+            <p class="text-lg">Select a classification rule</p>
+          </div>
         </div>
-        <div class="flex-1 flex flex-col">
-          <label class="block text-sm font-medium text-gray-400 mb-1.5">Rules (Markdown)</label>
-          <textarea id="edit-classification" oninput="markClsDirty()"
-            class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
-            style="min-height: 500px"></textarea>
-        </div>
+        <div id="rules-detail" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
       </div>
     </div>
-
-  </main>
+  </div>
 
   <!-- Toast -->
-  <div id="toast" class="fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all translate-y-16 opacity-0 pointer-events-none"></div>
+  <div id="toast" class="fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all duration-300 translate-y-16 opacity-0 pointer-events-none z-50"></div>
 
-  <script>
-    let skills = [];
-    let activeId = null;
-    let dirty = false;
-    let currentTab = 'skills';
-    let agents = [];
-    let activeAgent = null;
-    let soulDirty = false;
-    let classifications = [];
-    let activeClassification = null;
-    let clsDirty = false;
+  <!-- Copy/Move Modal -->
+  <div id="modal-overlay" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center">
+    <div class="bg-gray-900 rounded-xl border border-gray-700 shadow-2xl w-96 p-6" id="modal-content"></div>
+  </div>
 
-    // --- API ---
+<script>
+// ═══════════════════════════════════════════════════════════
+// State
+// ═══════════════════════════════════════════════════════════
+let state = {
+  agents: [],
+  skills: [],
+  classifications: [],
+  classificationsMap: {},
+  dashboard: null,
+  currentPage: 'dashboard',
+  selectedAgent: null,
+  selectedSkill: null,
+  selectedRule: null,
+  skillTierFilter: '',
+  dirty: false,
+};
 
-    async function fetchSkills() {
-      const res = await fetch('/api/skills');
-      skills = await res.json();
-      renderList();
-    }
+// ═══════════════════════════════════════════════════════════
+// API
+// ═══════════════════════════════════════════════════════════
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body) opts.body = JSON.stringify(body);
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+    throw new Error(err.detail || 'Request failed');
+  }
+  return res.json();
+}
 
-    async function loadSkill(id) {
-      activeId = id;
-      dirty = false;
-      const s = skills.find(s => s.id === id);
-      if (!s) return;
+async function loadDashboard() {
+  state.dashboard = await api('GET', '/api/dashboard');
+  state.agents = state.dashboard.agents;
+  state.classifications = state.dashboard.classifications;
+  state.classificationsMap = state.dashboard.classifications_map;
+}
 
-      document.getElementById('empty-state').classList.add('hidden');
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('edit-panel').classList.remove('hidden');
+async function loadSkills() {
+  state.skills = await api('GET', '/api/skills');
+}
 
-      document.getElementById('panel-title').textContent = s.name || s.folder;
-      document.getElementById('panel-meta').textContent = `workspace-${s.workspace} / ${s.folder}`;
-      document.getElementById('edit-name').value = s.name;
-      document.getElementById('edit-description').value = s.description;
-      document.getElementById('edit-instructions').value = s.instructions;
-      document.getElementById('save-btn').disabled = true;
+// ═══════════════════════════════════════════════════════════
+// Navigation
+// ═══════════════════════════════════════════════════════════
+async function navigate(page) {
+  state.currentPage = page;
+  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.getElementById(`page-${page}`).classList.remove('hidden');
 
-      renderList();
-    }
+  document.querySelectorAll('.nav-btn').forEach(b => {
+    b.className = 'nav-btn px-4 py-2 text-sm font-medium rounded-lg transition text-gray-400 hover:text-gray-200 hover:bg-gray-800';
+  });
+  document.getElementById(`nav-${page}`).className = 'nav-btn px-4 py-2 text-sm font-medium rounded-lg transition bg-gray-800 text-white';
 
-    async function saveSkill() {
-      if (!activeId) return;
-      const [ws, folder] = activeId.split('/');
-      const res = await fetch(`/api/skills/${ws}/${folder}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: document.getElementById('edit-name').value,
-          description: document.getElementById('edit-description').value,
-          instructions: document.getElementById('edit-instructions').value,
-        })
-      });
-      if (res.ok) {
-        toast('Skill saved', 'green');
-        dirty = false;
-        document.getElementById('save-btn').disabled = true;
-        await fetchSkills();
-        // Update header
-        const s = skills.find(s => s.id === activeId);
-        if (s) document.getElementById('panel-title').textContent = s.name || s.folder;
-      } else {
-        toast('Save failed', 'red');
-      }
-    }
+  if (page === 'dashboard') {
+    await loadDashboard();
+    renderDashboard();
+  } else if (page === 'agents') {
+    if (!state.agents.length) await loadDashboard();
+    renderAgentSidebar();
+  } else if (page === 'skills') {
+    await loadSkills();
+    if (!state.agents.length) await loadDashboard();
+    renderSkillSidebar();
+    populateSkillAgentFilter();
+  } else if (page === 'rules') {
+    if (!state.classifications.length) await loadDashboard();
+    renderRulesSidebar();
+  }
+}
 
-    async function createSkill() {
-      const workspace = document.getElementById('create-workspace').value;
-      const folder = document.getElementById('create-folder').value.trim();
-      const name = document.getElementById('create-name').value.trim();
-      const description = document.getElementById('create-description').value.trim();
-      const instructions = document.getElementById('create-instructions').value;
+// ═══════════════════════════════════════════════════════════
+// Dashboard
+// ═══════════════════════════════════════════════════════════
+function renderDashboard() {
+  const d = state.dashboard;
+  if (!d) return;
 
-      if (!workspace || !folder || !name) {
-        toast('Workspace, folder, and name are required', 'red');
-        return;
-      }
+  // Stats cards
+  const s = d.skill_summary;
+  document.getElementById('stats-cards').innerHTML = `
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="text-3xl font-bold text-blue-400">${d.agents.length}</div>
+      <div class="text-sm text-gray-400 mt-1">Agents</div>
+    </div>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="text-3xl font-bold text-green-400">${s.agent}</div>
+      <div class="text-sm text-gray-400 mt-1">Per-Agent Skills</div>
+    </div>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="text-3xl font-bold text-amber-400">${s.global}</div>
+      <div class="text-sm text-gray-400 mt-1">Global Skills</div>
+    </div>
+    <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
+      <div class="text-3xl font-bold text-purple-400">${s.platform}</div>
+      <div class="text-sm text-gray-400 mt-1">Platform Skills</div>
+    </div>
+  `;
 
-      const res = await fetch('/api/skills', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspace, folder, name, description, instructions })
-      });
+  // Agent cards
+  document.getElementById('agent-grid').innerHTML = d.agents.map(a => {
+    const emoji = a.identity?.emoji || '🤖';
+    const clsBadge = a.classification
+      ? `<span class="badge-${a.classification} text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">${esc(a.classification)}</span>`
+      : `<span class="badge-unclassified text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide">unclassified</span>`;
+    const modelShort = (a.model || 'unknown').split('/').pop();
+    const toolsBadge = Object.keys(a.tools || {}).length
+      ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 font-semibold uppercase">restricted</span>`
+      : '';
 
-      if (res.ok) {
-        const data = await res.json();
-        toast('Skill created', 'green');
-        await fetchSkills();
-        loadSkill(data.id);
-      } else {
-        const err = await res.json();
-        toast(err.detail || 'Create failed', 'red');
-      }
-    }
+    return `
+      <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
+        class="bg-gray-900 rounded-xl border border-gray-800 p-5 hover:border-gray-600 cursor-pointer transition group">
+        <div class="flex items-start justify-between mb-3">
+          <div class="flex items-center gap-2">
+            <span class="text-2xl">${emoji}</span>
+            <div>
+              <div class="font-semibold">${esc(a.display_name)}</div>
+              <div class="text-xs text-gray-500">${esc(a.name)}</div>
+            </div>
+          </div>
+          <div class="flex flex-col items-end gap-1">
+            ${clsBadge}
+            ${toolsBadge}
+          </div>
+        </div>
+        <div class="flex items-center justify-between text-xs">
+          <span class="text-blue-400">${esc(modelShort)}</span>
+          <span class="text-gray-500">${a.skill_count} skill${a.skill_count !== 1 ? 's' : ''}</span>
+        </div>
+        ${a.skill_count > 0 ? `<div class="flex flex-wrap gap-1 mt-3">${a.skills.map(s => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(s.folder)}</span>`).join('')}</div>` : ''}
+      </div>`;
+  }).join('');
 
-    async function deleteSkill() {
-      if (!activeId) return;
-      if (!confirm(`Delete skill "${activeId}"? This removes the entire folder from disk.`)) return;
+  // Skill matrix
+  renderSkillMatrix();
+}
 
-      const [ws, folder] = activeId.split('/');
-      const res = await fetch(`/api/skills/${ws}/${folder}`, { method: 'DELETE' });
-      if (res.ok) {
-        toast('Skill deleted', 'green');
-        activeId = null;
-        document.getElementById('edit-panel').classList.add('hidden');
-        document.getElementById('empty-state').classList.remove('hidden');
-        await fetchSkills();
-      } else {
-        toast('Delete failed', 'red');
-      }
-    }
+function renderSkillMatrix() {
+  const d = state.dashboard;
+  if (!d) return;
 
-    // --- UI ---
+  // Collect all unique per-agent skill names
+  const allSkillNames = new Set();
+  d.agents.forEach(a => a.skills.forEach(s => allSkillNames.add(s.folder)));
+  const skillNames = [...allSkillNames].sort();
 
-    function renderList() {
-      const query = document.getElementById('search').value.toLowerCase();
-      const list = document.getElementById('skill-list');
-      const grouped = {};
+  if (skillNames.length === 0) {
+    document.getElementById('skill-matrix').innerHTML = '<p class="text-gray-500 text-sm">No per-agent skills found</p>';
+    return;
+  }
 
-      for (const s of skills) {
-        const text = `${s.name} ${s.folder} ${s.workspace}`.toLowerCase();
-        if (query && !text.includes(query)) continue;
-        if (!grouped[s.workspace]) grouped[s.workspace] = [];
-        grouped[s.workspace].push(s);
-      }
+  let html = '<table class="text-xs w-full"><thead><tr><th class="text-left px-2 py-1 text-gray-500 font-medium sticky left-0 bg-gray-900">Agent</th>';
+  skillNames.forEach(s => {
+    html += `<th class="px-2 py-1 text-gray-500 font-medium text-center" style="writing-mode: vertical-lr; transform: rotate(180deg); min-width: 28px; max-width: 28px;">${esc(s)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
 
-      let html = '';
-      for (const [ws, items] of Object.entries(grouped).sort()) {
-        html += `<div class="pt-3 pb-1 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">${ws}</div>`;
-        for (const s of items) {
-          const active = s.id === activeId;
-          html += `
-            <button onclick="loadSkill('${s.id}')"
-              class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
-              <div class="font-medium truncate">${esc(s.name || s.folder)}</div>
-              <div class="text-xs text-gray-500 truncate mt-0.5">${esc(s.description.slice(0, 80))}${s.description.length > 80 ? '...' : ''}</div>
-            </button>`;
-        }
-      }
-
-      if (!html) {
-        html = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No skills found</div>';
-      }
-
-      list.innerHTML = html;
-
-      // Populate workspace dropdown for create form
-      const workspaces = [...new Set(skills.map(s => s.workspace))].sort();
-      const sel = document.getElementById('create-workspace');
-      const current = sel.value;
-      sel.innerHTML = workspaces.map(w => `<option value="${w}" ${w === current ? 'selected' : ''}>${w}</option>`).join('');
-    }
-
-    function filterSkills() { renderList(); }
-
-    function markDirty() {
-      dirty = true;
-      document.getElementById('save-btn').disabled = false;
-    }
-
-    function showCreate() {
-      activeId = null;
-      document.getElementById('empty-state').classList.add('hidden');
-      document.getElementById('edit-panel').classList.add('hidden');
-      document.getElementById('create-panel').classList.remove('hidden');
-      document.getElementById('create-folder').value = '';
-      document.getElementById('create-name').value = '';
-      document.getElementById('create-description').value = '';
-      document.getElementById('create-instructions').value = '';
-      renderList();
-    }
-
-    function hideCreate() {
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('empty-state').classList.remove('hidden');
-    }
-
-    function toast(msg, color = 'blue') {
-      const t = document.getElementById('toast');
-      t.textContent = msg;
-      t.className = `fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all ${color === 'green' ? 'bg-green-600' : color === 'red' ? 'bg-red-600' : 'bg-blue-600'} text-white`;
-      setTimeout(() => { t.classList.add('opacity-0', 'translate-y-16'); }, 2500);
-    }
-
-    function esc(s) {
-      const d = document.createElement('div');
-      d.textContent = s;
-      return d.innerHTML;
-    }
-
-    // Keyboard shortcut: Ctrl/Cmd+S to save
-    document.addEventListener('keydown', e => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-        e.preventDefault();
-        if (activeId && dirty) saveSkill();
-        if (activeAgent && soulDirty) saveSoul();
-      }
+  d.agents.forEach(a => {
+    const agentSkills = new Set(a.skills.map(s => s.folder));
+    html += `<tr class="hover:bg-gray-800/50"><td class="px-2 py-1.5 text-gray-300 font-medium sticky left-0 bg-gray-900">${esc(a.display_name)}</td>`;
+    skillNames.forEach(s => {
+      const has = agentSkills.has(s);
+      html += `<td class="text-center px-2 py-1.5">${has ? '<span class="text-green-400">●</span>' : '<span class="text-gray-700">·</span>'}</td>`;
     });
+    html += '</tr>';
+  });
+  html += '</tbody></table>';
+  document.getElementById('skill-matrix').innerHTML = html;
+}
 
-    // --- Tabs ---
+// ═══════════════════════════════════════════════════════════
+// Agents Page
+// ═══════════════════════════════════════════════════════════
+function renderAgentSidebar() {
+  const query = (document.getElementById('agent-filter')?.value || '').toLowerCase();
+  const filtered = state.agents.filter(a => !query || a.name.includes(query) || (a.display_name || '').toLowerCase().includes(query));
+  const list = document.getElementById('agent-sidebar-list');
 
-    function switchTab(tab) {
-      currentTab = tab;
-      // Reset panels
-      document.getElementById('edit-panel').classList.add('hidden');
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('soul-panel').classList.add('hidden');
-      document.getElementById('classification-panel').classList.add('hidden');
-      document.getElementById('empty-state').classList.remove('hidden');
-      activeId = null;
-      activeAgent = null;
-      activeClassification = null;
+  list.innerHTML = filtered.map(a => {
+    const active = a.name === state.selectedAgent;
+    const emoji = a.identity?.emoji || '🤖';
+    const modelShort = (a.model || '').split('/').pop();
+    const clsBadge = a.classification
+      ? `<span class="badge-${a.classification} text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase">${esc(a.classification)}</span>`
+      : '';
+    return `
+      <button onclick="selectAgent('${esc(a.name)}')"
+        class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
+        <div class="flex items-center gap-2">
+          <span>${emoji}</span>
+          <span class="font-medium truncate">${esc(a.display_name)}</span>
+          ${clsBadge}
+        </div>
+        <div class="flex justify-between text-xs text-gray-500 mt-0.5 pl-6">
+          <span>${a.skill_count} skills</span>
+          <span class="text-blue-400/70">${esc(modelShort)}</span>
+        </div>
+      </button>`;
+  }).join('');
+}
 
-      // Toggle sidebar sections
-      document.getElementById('sidebar-skills').classList.toggle('hidden', tab !== 'skills');
-      document.getElementById('sidebar-agents').classList.toggle('hidden', tab !== 'agents');
-      document.getElementById('sidebar-classifications').classList.toggle('hidden', tab !== 'classifications');
+async function selectAgent(name) {
+  state.selectedAgent = name;
+  renderAgentSidebar();
+  const a = state.agents.find(a => a.name === name);
+  if (!a) return;
 
-      // Style tabs
-      const skillsTab = document.getElementById('tab-skills');
-      const agentsTab = document.getElementById('tab-agents');
-      const clsTab = document.getElementById('tab-classifications');
-      if (tab === 'skills') {
-        skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
-        agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-      } else if (tab === 'agents') {
-        agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
-        skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-        fetchAgents();
-      } else {
-        clsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-blue-500 text-blue-400';
-        skillsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-        agentsTab.className = 'flex-1 px-4 py-2.5 text-sm font-medium transition border-b-2 border-transparent text-gray-500 hover:text-gray-300';
-        fetchClassifications();
-      }
+  document.getElementById('agent-empty').classList.add('hidden');
+  const detail = document.getElementById('agent-detail');
+  detail.classList.remove('hidden');
+
+  const emoji = a.identity?.emoji || '🤖';
+  const vibe = a.identity?.vibe || '';
+  const creature = a.identity?.creature || '';
+  const modelShort = (a.model || '').split('/').pop();
+  const clsBadge = a.classification
+    ? `<span class="badge-${a.classification} text-xs px-2 py-1 rounded font-semibold uppercase">${esc(a.classification)}</span>`
+    : `<span class="badge-unclassified text-xs px-2 py-1 rounded font-semibold uppercase">unclassified</span>`;
+
+  const toolsHtml = Object.keys(a.tools || {}).length
+    ? `<div class="bg-red-500/10 border border-red-500/20 rounded-lg p-4 mt-4">
+        <div class="text-sm font-medium text-red-300 mb-2">Tool Restrictions</div>
+        ${a.tools.deny ? `<div class="text-xs text-red-200"><span class="font-medium">Denied:</span> ${a.tools.deny.join(', ')}</div>` : ''}
+        ${a.tools.allow ? `<div class="text-xs text-red-200"><span class="font-medium">Allowed only:</span> ${a.tools.allow.join(', ')}</div>` : ''}
+      </div>` : '';
+
+  const filesHtml = Object.keys(a.files || {}).map(f =>
+    `<span class="text-xs px-2 py-1 rounded bg-gray-800 text-gray-400">${esc(f)}</span>`
+  ).join(' ');
+
+  const skillsHtml = a.skills.length
+    ? a.skills.map(s => `
+        <div class="flex items-center justify-between py-2 px-3 bg-gray-800/50 rounded-lg">
+          <div>
+            <div class="text-sm font-medium text-gray-200">${esc(s.name || s.folder)}</div>
+            <div class="text-xs text-gray-500 mt-0.5 truncate max-w-lg">${esc((s.description || '').slice(0, 120))}</div>
+          </div>
+          <div class="flex gap-2 shrink-0">
+            <button onclick="navigate('skills'); setTimeout(() => selectSkill('${esc(a.name)}/${esc(s.folder)}'), 100)" class="text-xs text-blue-400 hover:text-blue-300">Edit</button>
+            <button onclick="showCopyMoveModal('${esc(a.name)}', '${esc(s.folder)}')" class="text-xs text-gray-400 hover:text-gray-300">Copy/Move</button>
+          </div>
+        </div>`).join('')
+    : '<p class="text-sm text-gray-500 py-4">No per-agent skills configured</p>';
+
+  detail.innerHTML = `
+    <div class="p-8 space-y-6">
+      <!-- Header -->
+      <div class="flex items-start justify-between">
+        <div class="flex items-center gap-4">
+          <span class="text-5xl">${emoji}</span>
+          <div>
+            <h2 class="text-2xl font-bold">${esc(a.display_name)}</h2>
+            <div class="text-sm text-gray-500 mt-1">${esc(creature)}</div>
+            ${vibe ? `<div class="text-xs text-gray-600 mt-1 italic">${esc(vibe)}</div>` : ''}
+          </div>
+        </div>
+        <div class="flex flex-col items-end gap-2">
+          ${clsBadge}
+          <span class="text-xs px-2 py-1 rounded bg-blue-500/15 text-blue-300">${esc(modelShort)}</span>
+        </div>
+      </div>
+
+      ${toolsHtml}
+
+      <!-- Workspace files -->
+      <div>
+        <div class="text-sm font-medium text-gray-400 mb-2">Workspace Files</div>
+        <div class="flex flex-wrap gap-2">${filesHtml}</div>
+        <div class="text-xs text-gray-600 mt-2">${esc(a.path)}</div>
+      </div>
+
+      <!-- Skills -->
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <div class="text-sm font-medium text-gray-400">Per-Agent Skills (${a.skill_count})</div>
+          <button onclick="showSkillCreateForAgent('${esc(a.name)}')" class="text-xs text-blue-400 hover:text-blue-300">+ Add Skill</button>
+        </div>
+        <div class="space-y-2">${skillsHtml}</div>
+      </div>
+
+      <!-- Editable sections -->
+      <div class="grid grid-cols-2 gap-6">
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-gray-400">IDENTITY.md</label>
+            <button onclick="saveAgentFile('${esc(a.name)}', 'identity')" id="save-identity-btn" class="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-40" disabled>Save</button>
+          </div>
+          <textarea id="edit-identity" oninput="document.getElementById('save-identity-btn').disabled = false"
+            class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+            style="min-height: 250px">${esc(a.identity_md)}</textarea>
+        </div>
+        <div>
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-sm font-medium text-gray-400">SOUL.md</label>
+            <button onclick="saveAgentFile('${esc(a.name)}', 'soul')" id="save-soul-btn" class="text-xs text-blue-400 hover:text-blue-300 disabled:opacity-40" disabled>Save</button>
+          </div>
+          <textarea id="edit-soul" oninput="document.getElementById('save-soul-btn').disabled = false"
+            class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+            style="min-height: 250px">${esc(a.soul)}</textarea>
+        </div>
+      </div>
+    </div>`;
+}
+
+async function saveAgentFile(name, type) {
+  const content = document.getElementById(`edit-${type}`).value;
+  try {
+    await api('PUT', `/api/agents/${name}/${type}`, { content });
+    toast(`${type.toUpperCase()}.md saved`, 'green');
+    document.getElementById(`save-${type}-btn`).disabled = true;
+    await loadDashboard();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Skills Page
+// ═══════════════════════════════════════════════════════════
+function populateSkillAgentFilter() {
+  const agents = [...new Set(state.skills.filter(s => s.agent).map(s => s.agent))].sort();
+  const sel = document.getElementById('skill-agent-filter');
+  const current = sel.value;
+  sel.innerHTML = '<option value="">All agents</option>' +
+    agents.map(a => `<option value="${a}" ${a === current ? 'selected' : ''}>${a}</option>`).join('');
+}
+
+function setSkillTierFilter(tier) {
+  state.skillTierFilter = tier;
+  document.querySelectorAll('.skill-tier-btn').forEach(b => {
+    b.className = 'skill-tier-btn text-xs px-2 py-1 rounded ' + (b.textContent.toLowerCase().includes(tier || 'all') ? 'bg-gray-700 text-gray-300' : 'bg-gray-800 text-gray-500');
+  });
+  renderSkillSidebar();
+}
+
+function renderSkillSidebar() {
+  const query = (document.getElementById('skill-filter')?.value || '').toLowerCase();
+  const agentFilter = document.getElementById('skill-agent-filter')?.value || '';
+  const tierFilter = state.skillTierFilter;
+
+  let filtered = state.skills;
+  if (query) filtered = filtered.filter(s => `${s.name} ${s.folder} ${s.description}`.toLowerCase().includes(query));
+  if (tierFilter) filtered = filtered.filter(s => s.tier === tierFilter);
+  if (agentFilter) filtered = filtered.filter(s => s.agent === agentFilter);
+
+  // Group by tier then agent
+  const groups = {};
+  filtered.forEach(s => {
+    const key = s.tier === 'agent' ? `agent:${s.agent}` : s.tier;
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(s);
+  });
+
+  const list = document.getElementById('skill-sidebar-list');
+  let html = '';
+
+  // Order: platform, global, then per-agent
+  const order = ['platform', 'global'];
+  const agentKeys = Object.keys(groups).filter(k => k.startsWith('agent:')).sort();
+  const allKeys = [...order.filter(k => groups[k]), ...agentKeys];
+
+  for (const key of allKeys) {
+    const items = groups[key] || [];
+    if (!items.length) continue;
+    const label = key === 'platform' ? '📦 Platform (npm)' : key === 'global' ? '🌍 Global (shared)' : `🤖 ${key.replace('agent:', '')}`;
+    const tierClass = key === 'platform' ? 'tier-platform' : key === 'global' ? 'tier-global' : 'tier-agent';
+
+    html += `<div class="pt-3 pb-1 px-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">${label}</div>`;
+    for (const s of items) {
+      const active = s.id === state.selectedSkill;
+      html += `
+        <button onclick="selectSkill('${esc(s.id)}')"
+          class="w-full text-left px-3 py-2 rounded-lg text-sm transition ${tierClass} ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
+          <div class="font-medium truncate">${esc(s.name || s.folder)}</div>
+          <div class="text-xs text-gray-500 truncate mt-0.5">${esc((s.description || '').slice(0, 80))}</div>
+        </button>`;
     }
+  }
 
-    // --- Agents API ---
+  if (!html) html = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No skills match filters</div>';
+  list.innerHTML = html;
 
-    async function fetchAgents() {
-      const res = await fetch('/api/agents');
-      agents = await res.json();
-      renderAgentList();
+  document.getElementById('skill-count-bar').textContent = `${filtered.length} of ${state.skills.length} skills`;
+}
+
+function selectSkill(id) {
+  state.selectedSkill = id;
+  renderSkillSidebar();
+  const s = state.skills.find(s => s.id === id);
+  if (!s) return;
+
+  document.getElementById('skill-empty').classList.add('hidden');
+  document.getElementById('skill-create').classList.add('hidden');
+  const detail = document.getElementById('skill-detail');
+  detail.classList.remove('hidden');
+
+  const tierColor = s.tier === 'platform' ? 'blue' : s.tier === 'global' ? 'amber' : 'green';
+  const isEditable = s.tier !== 'platform';
+  const deleteBtn = isEditable && s.tier === 'agent'
+    ? `<button onclick="deleteSkill('${esc(s.agent || '__global__')}', '${esc(s.folder)}')" class="px-4 py-2 text-sm text-red-400 hover:bg-red-400/10 rounded-lg transition">Delete</button>`
+    : '';
+  const saveBtn = isEditable
+    ? `<button onclick="saveCurrentSkill()" id="skill-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>`
+    : '';
+  const copyBtn = s.tier === 'agent'
+    ? `<button onclick="showCopyMoveModal('${esc(s.agent)}', '${esc(s.folder)}')" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Copy/Move</button>`
+    : '';
+
+  detail.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <div>
+        <div class="flex items-center gap-3">
+          <h2 class="text-xl font-semibold">${esc(s.name || s.folder)}</h2>
+          <span class="text-xs px-2 py-0.5 rounded bg-${tierColor}-500/15 text-${tierColor}-300 font-medium">${esc(s.tier_label)}</span>
+        </div>
+        <p class="text-sm text-gray-500 mt-0.5">${esc(s.path)}</p>
+      </div>
+      <div class="flex gap-2">
+        ${copyBtn}
+        ${deleteBtn}
+        ${saveBtn}
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
+        <input id="sedit-name" type="text" value="${esc(s.name)}" oninput="markSkillDirty()" ${!isEditable ? 'disabled' : ''}
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
+        <textarea id="sedit-desc" rows="3" oninput="markSkillDirty()" ${!isEditable ? 'disabled' : ''}
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y disabled:opacity-50">${esc(s.description)}</textarea>
+      </div>
+      <div class="flex-1 flex flex-col">
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Instructions (Markdown)</label>
+        <textarea id="sedit-inst" oninput="markSkillDirty()" ${!isEditable ? 'disabled' : ''}
+          class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y disabled:opacity-50"
+          style="min-height: 350px">${esc(s.instructions)}</textarea>
+      </div>
+    </div>`;
+}
+
+function markSkillDirty() {
+  const btn = document.getElementById('skill-save-btn');
+  if (btn) btn.disabled = false;
+}
+
+async function saveCurrentSkill() {
+  const s = state.skills.find(s => s.id === state.selectedSkill);
+  if (!s) return;
+  const body = {
+    name: document.getElementById('sedit-name').value,
+    description: document.getElementById('sedit-desc').value,
+    instructions: document.getElementById('sedit-inst').value,
+  };
+  try {
+    if (s.tier === 'global') {
+      await api('PUT', `/api/skills/global/${s.folder}`, body);
+    } else if (s.tier === 'agent') {
+      await api('PUT', `/api/skills/agent/${s.agent}/${s.folder}`, body);
     }
+    toast('Skill saved', 'green');
+    document.getElementById('skill-save-btn').disabled = true;
+    await loadSkills();
+    renderSkillSidebar();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-    function renderAgentList() {
-      const query = (document.getElementById('agent-search').value || '').toLowerCase();
-      const list = document.getElementById('agent-list');
-      const filtered = agents.filter(a => !query || a.name.toLowerCase().includes(query));
+async function deleteSkill(agent, folder) {
+  if (!confirm(`Delete skill "${folder}" from ${agent === '__global__' ? 'global' : agent}? This removes the entire folder from disk.`)) return;
+  try {
+    await api('DELETE', `/api/skills/${agent}/${folder}`);
+    toast('Skill deleted', 'green');
+    state.selectedSkill = null;
+    document.getElementById('skill-detail').classList.add('hidden');
+    document.getElementById('skill-empty').classList.remove('hidden');
+    await loadSkills();
+    renderSkillSidebar();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-      if (!filtered.length) {
-        list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No agents found</div>';
-        return;
-      }
+function showSkillCreate() {
+  state.selectedSkill = null;
+  renderSkillSidebar();
+  document.getElementById('skill-empty').classList.add('hidden');
+  document.getElementById('skill-detail').classList.add('hidden');
+  const panel = document.getElementById('skill-create');
+  panel.classList.remove('hidden');
 
-      let html = '';
-      for (const a of filtered) {
-        const active = a.name === activeAgent;
-        const clsBadge = a.classification ? `<span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wide ${a.classification === 'partnrup' ? 'bg-purple-500/20 text-purple-300' : 'bg-green-500/20 text-green-300'}">${esc(a.classification)}</span>` : '';
-        html += `
-          <button onclick="loadAgent('${esc(a.name)}')"
-            class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
-            <div class="font-medium truncate flex items-center gap-2">${esc(a.name)} ${clsBadge}</div>
-            <div class="text-xs text-gray-500 mt-0.5 flex justify-between">
-              <span>${a.has_soul ? 'SOUL.md' : 'No SOUL'}</span>
-              <span class="text-blue-400 opacity-70 truncate ml-2" title="${esc(a.model || '')}">${esc((a.model || '').split('/').pop())}</span>
-            </div>
-          </button>`;
-      }
-      list.innerHTML = html;
+  const agentOpts = state.agents.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  panel.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <h2 class="text-xl font-semibold">Create New Skill</h2>
+      <div class="flex gap-2">
+        <button onclick="hideSkillCreate()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
+        <button onclick="createSkill()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">Create</button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div class="grid grid-cols-2 gap-4">
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Target</label>
+          <select id="screate-ws" class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+            <option value="__global__">🌍 Global (all agents)</option>
+            ${agentOpts}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-400 mb-1.5">Folder Name</label>
+          <input id="screate-folder" type="text" placeholder="my-skill"
+            class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+        </div>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
+        <input id="screate-name" type="text" placeholder="Human-readable name"
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Description</label>
+        <textarea id="screate-desc" rows="3" placeholder="When should this skill trigger?"
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"></textarea>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Instructions</label>
+        <textarea id="screate-inst" rows="12" placeholder="# My Skill&#10;&#10;Instructions..."
+          class="w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+          style="min-height: 300px"></textarea>
+      </div>
+    </div>`;
+}
+
+function showSkillCreateForAgent(agent) {
+  navigate('skills');
+  setTimeout(() => {
+    showSkillCreate();
+    setTimeout(() => {
+      const sel = document.getElementById('screate-ws');
+      if (sel) sel.value = agent;
+    }, 50);
+  }, 100);
+}
+
+function hideSkillCreate() {
+  document.getElementById('skill-create').classList.add('hidden');
+  document.getElementById('skill-empty').classList.remove('hidden');
+}
+
+async function createSkill() {
+  const workspace = document.getElementById('screate-ws').value;
+  const folder = document.getElementById('screate-folder').value.trim();
+  const name = document.getElementById('screate-name').value.trim();
+  const description = document.getElementById('screate-desc').value.trim();
+  const instructions = document.getElementById('screate-inst').value;
+
+  if (!folder || !name) {
+    toast('Folder and name are required', 'red');
+    return;
+  }
+  try {
+    const data = await api('POST', '/api/skills', { workspace, folder, name, description, instructions });
+    toast('Skill created', 'green');
+    await loadSkills();
+    renderSkillSidebar();
+    // Select the new skill
+    const newId = workspace === '__global__' ? `global/${folder}` : `${workspace}/${folder}`;
+    selectSkill(newId);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Copy/Move Modal
+// ═══════════════════════════════════════════════════════════
+function showCopyMoveModal(sourceAgent, folder) {
+  const agentOpts = state.agents
+    .filter(a => a.name !== sourceAgent)
+    .map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+
+  document.getElementById('modal-content').innerHTML = `
+    <h3 class="text-lg font-semibold mb-4">Copy / Move Skill</h3>
+    <div class="text-sm text-gray-400 mb-4">
+      <span class="font-medium text-gray-300">${esc(folder)}</span> from <span class="font-medium text-gray-300">${esc(sourceAgent)}</span>
+    </div>
+    <div class="mb-4">
+      <label class="block text-sm text-gray-400 mb-1">Target agent</label>
+      <select id="modal-target" class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none">
+        <option value="__global__">🌍 Global (all agents)</option>
+        ${agentOpts}
+      </select>
+    </div>
+    <div class="flex justify-end gap-2">
+      <button onclick="closeModal()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
+      <button onclick="doCopySkill('${esc(sourceAgent)}', '${esc(folder)}')" class="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition">Copy</button>
+      <button onclick="doMoveSkill('${esc(sourceAgent)}', '${esc(folder)}')" class="px-4 py-2 text-sm bg-amber-600 hover:bg-amber-700 text-white rounded-lg transition">Move</button>
+    </div>`;
+  document.getElementById('modal-overlay').classList.remove('hidden');
+}
+
+function closeModal() {
+  document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function doCopySkill(source, folder) {
+  const target = document.getElementById('modal-target').value;
+  try {
+    await api('POST', '/api/skills/copy', { source_agent: source, target_agent: target, folder });
+    toast(`Copied ${folder} to ${target}`, 'green');
+    closeModal();
+    await loadSkills();
+    if (state.currentPage === 'skills') renderSkillSidebar();
+    if (state.currentPage === 'agents' || state.currentPage === 'dashboard') { await loadDashboard(); renderDashboard(); }
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function doMoveSkill(source, folder) {
+  const target = document.getElementById('modal-target').value;
+  try {
+    await api('POST', '/api/skills/move', { source_agent: source, target_agent: target, folder });
+    toast(`Moved ${folder} to ${target}`, 'green');
+    closeModal();
+    state.selectedSkill = null;
+    await loadSkills();
+    if (state.currentPage === 'skills') {
+      renderSkillSidebar();
+      document.getElementById('skill-detail').classList.add('hidden');
+      document.getElementById('skill-empty').classList.remove('hidden');
     }
+    if (state.currentPage === 'agents') { await loadDashboard(); if (state.selectedAgent) selectAgent(state.selectedAgent); }
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-    async function loadAgent(name) {
-      activeAgent = name;
-      activeId = null;
-      soulDirty = false;
-      const a = agents.find(a => a.name === name);
-      if (!a) return;
+// ═══════════════════════════════════════════════════════════
+// Rules Page
+// ═══════════════════════════════════════════════════════════
+function renderRulesSidebar() {
+  const list = document.getElementById('rules-sidebar-list');
+  if (!state.classifications.length) {
+    list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No classifications found</div>';
+    return;
+  }
+  list.innerHTML = state.classifications.map(c => {
+    const active = c.name === state.selectedRule;
+    const count = state.agents.filter(a => a.classification === c.name).length;
+    const color = c.name === 'partnrup' ? 'purple' : 'green';
+    return `
+      <button onclick="selectRule('${esc(c.name)}')"
+        class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
+        <div class="flex items-center gap-2">
+          <span class="w-2 h-2 rounded-full bg-${color}-400 shrink-0"></span>
+          <span class="font-medium">${esc(c.name)}</span>
+        </div>
+        <div class="text-xs text-gray-500 mt-0.5 pl-4">${count} agent${count !== 1 ? 's' : ''}</div>
+      </button>`;
+  }).join('');
+}
 
-      document.getElementById('empty-state').classList.add('hidden');
-      document.getElementById('edit-panel').classList.add('hidden');
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('soul-panel').classList.remove('hidden');
+function selectRule(name) {
+  state.selectedRule = name;
+  renderRulesSidebar();
+  const c = state.classifications.find(c => c.name === name);
+  if (!c) return;
 
-      document.getElementById('soul-title').textContent = a.name;
-      const clsLabel = a.classification ? `  •  Classification: ${a.classification}` : '';
-      document.getElementById('soul-meta').textContent = `~/.openclaw/workspace-${a.name}/SOUL.md  •  Model: ${a.model || 'unknown'}${clsLabel}`;
-      document.getElementById('edit-soul').value = a.soul;
-      document.getElementById('soul-save-btn').disabled = true;
+  document.getElementById('rules-empty').classList.add('hidden');
+  const detail = document.getElementById('rules-detail');
+  detail.classList.remove('hidden');
 
-      renderAgentList();
-    }
+  const agentsInCls = state.agents.filter(a => a.classification === name);
+  const otherAgents = state.agents.filter(a => a.classification !== name);
+  const color = name === 'partnrup' ? 'purple' : 'green';
 
-    function markSoulDirty() {
-      soulDirty = true;
-      document.getElementById('soul-save-btn').disabled = false;
-    }
+  detail.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <div>
+        <div class="flex items-center gap-3">
+          <span class="w-3 h-3 rounded-full bg-${color}-400"></span>
+          <h2 class="text-xl font-semibold">${esc(name)} rules</h2>
+        </div>
+        <p class="text-sm text-gray-500 mt-0.5">${esc(c.path)}</p>
+      </div>
+      <button onclick="saveRule('${esc(name)}')" id="rule-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <div class="flex items-center justify-between mb-3">
+          <label class="text-sm font-medium text-gray-400">Agents in this classification (${agentsInCls.length})</label>
+          <div class="flex items-center gap-2">
+            <select id="add-agent-to-cls" class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-xs focus:outline-none">
+              <option value="">+ Add agent...</option>
+              ${otherAgents.map(a => `<option value="${esc(a.display_name)}">${esc(a.display_name)}</option>`).join('')}
+            </select>
+            <button onclick="addAgentToClassification('${esc(name)}')" class="text-xs text-blue-400 hover:text-blue-300">Add</button>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2" id="cls-agent-badges">
+          ${agentsInCls.map(a => `
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm bg-gray-800 border border-gray-700 text-gray-300">
+              ${a.identity?.emoji || '🤖'} ${esc(a.display_name)}
+              <button onclick="removeAgentFromClassification('${esc(a.display_name)}', '${esc(name)}')" class="text-gray-500 hover:text-red-400 ml-1">×</button>
+            </span>`).join('')}
+          ${!agentsInCls.length ? '<span class="text-sm text-gray-500">No agents assigned</span>' : ''}
+        </div>
+      </div>
+      <div class="flex-1 flex flex-col">
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Rules (Markdown)</label>
+        <textarea id="edit-rule" oninput="document.getElementById('rule-save-btn').disabled = false"
+          class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+          style="min-height: 400px">${esc(c.content)}</textarea>
+      </div>
+    </div>`;
+}
 
-    async function saveSoul() {
-      if (!activeAgent) return;
-      const res = await fetch(`/api/agents/${activeAgent}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ soul: document.getElementById('edit-soul').value })
-      });
-      if (res.ok) {
-        toast('SOUL.md saved', 'green');
-        soulDirty = false;
-        document.getElementById('soul-save-btn').disabled = true;
-        await fetchAgents();
-      } else {
-        toast('Save failed', 'red');
-      }
-    }
+async function saveRule(name) {
+  try {
+    await api('PUT', `/api/classifications/${name}`, { content: document.getElementById('edit-rule').value });
+    toast('Classification rules saved', 'green');
+    document.getElementById('rule-save-btn').disabled = true;
+    await loadDashboard();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-    // --- Classifications API ---
+async function addAgentToClassification(clsName) {
+  const sel = document.getElementById('add-agent-to-cls');
+  const agentName = sel.value;
+  if (!agentName) return;
+  try {
+    await api('PUT', '/api/classifications/assign', { agent_display_name: agentName, classification: clsName });
+    toast(`Added ${agentName} to ${clsName}`, 'green');
+    await loadDashboard();
+    selectRule(clsName);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-    async function fetchClassifications() {
-      const res = await fetch('/api/classifications');
-      classifications = await res.json();
-      // also fetch agents so we can show which agents belong to each classification
-      if (!agents.length) {
-        const ar = await fetch('/api/agents');
-        agents = await ar.json();
-      }
-      renderClassificationList();
-    }
+async function removeAgentFromClassification(agentName, clsName) {
+  try {
+    await api('PUT', '/api/classifications/assign', { agent_display_name: agentName, classification: '' });
+    toast(`Removed ${agentName} from ${clsName}`, 'green');
+    await loadDashboard();
+    selectRule(clsName);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
 
-    function renderClassificationList() {
-      const list = document.getElementById('classification-list');
-      if (!classifications.length) {
-        list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No classifications found</div>';
-        return;
-      }
-      let html = '';
-      for (const c of classifications) {
-        const active = c.name === activeClassification;
-        const count = agents.filter(a => a.classification === c.name).length;
-        const color = c.name === 'partnrup' ? 'purple' : 'green';
-        html += `
-          <button onclick="loadClassification('${esc(c.name)}')"
-            class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition group ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
-            <div class="font-medium truncate flex items-center gap-2">
-              <span class="inline-block w-2 h-2 rounded-full bg-${color}-400"></span>
-              ${esc(c.name)}
-            </div>
-            <div class="text-xs text-gray-500 mt-0.5">${count} agent${count !== 1 ? 's' : ''}</div>
-          </button>`;
-      }
-      list.innerHTML = html;
-    }
+// ═══════════════════════════════════════════════════════════
+// Utils
+// ═══════════════════════════════════════════════════════════
+function toast(msg, color = 'blue') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  const bg = color === 'green' ? 'bg-green-600' : color === 'red' ? 'bg-red-600' : 'bg-blue-600';
+  t.className = `fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all duration-300 ${bg} text-white z-50`;
+  setTimeout(() => { t.classList.add('opacity-0', 'translate-y-16'); }, 2500);
+}
 
-    async function loadClassification(name) {
-      activeClassification = name;
-      activeId = null;
-      activeAgent = null;
-      clsDirty = false;
-      const c = classifications.find(c => c.name === name);
-      if (!c) return;
+function esc(s) {
+  if (s === null || s === undefined) return '';
+  const d = document.createElement('div');
+  d.textContent = String(s);
+  return d.innerHTML;
+}
 
-      document.getElementById('empty-state').classList.add('hidden');
-      document.getElementById('edit-panel').classList.add('hidden');
-      document.getElementById('create-panel').classList.add('hidden');
-      document.getElementById('soul-panel').classList.add('hidden');
-      document.getElementById('classification-panel').classList.remove('hidden');
+// Keyboard shortcut: Cmd/Ctrl+S
+document.addEventListener('keydown', e => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    const saveBtn = document.querySelector('#skill-save-btn:not([disabled]), #save-soul-btn:not([disabled]), #save-identity-btn:not([disabled]), #rule-save-btn:not([disabled])');
+    if (saveBtn) saveBtn.click();
+  }
+});
 
-      document.getElementById('cls-title').textContent = name + ' rules';
-      document.getElementById('cls-meta').textContent = c.path;
-      document.getElementById('edit-classification').value = c.content;
-      document.getElementById('cls-save-btn').disabled = true;
+// Click outside modal to close
+document.getElementById('modal-overlay').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
 
-      // Show agent badges
-      const agentsInCls = agents.filter(a => a.classification === name);
-      const badgesEl = document.getElementById('cls-agents');
-      badgesEl.innerHTML = agentsInCls.map(a => `<span class="inline-block px-2 py-1 rounded-md text-xs font-medium bg-gray-800 border border-gray-700 text-gray-300">${esc(a.name)}</span>`).join('');
-
-      renderClassificationList();
-    }
-
-    function markClsDirty() {
-      clsDirty = true;
-      document.getElementById('cls-save-btn').disabled = false;
-    }
-
-    async function saveClassification() {
-      if (!activeClassification) return;
-      const res = await fetch(`/api/classifications/${activeClassification}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: document.getElementById('edit-classification').value })
-      });
-      if (res.ok) {
-        toast('Classification rules saved', 'green');
-        clsDirty = false;
-        document.getElementById('cls-save-btn').disabled = true;
-        await fetchClassifications();
-      } else {
-        toast('Save failed', 'red');
-      }
-    }
-
-    // Init
-    fetchSkills();
-  </script>
+// Init
+navigate('dashboard');
+</script>
 </body>
 </html>
