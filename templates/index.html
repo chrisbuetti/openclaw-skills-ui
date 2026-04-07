@@ -52,7 +52,10 @@
       <button onclick="navigate('groups')" id="nav-groups" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Groups</button>
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
-    <div class="ml-auto text-xs text-gray-500" id="status-bar"></div>
+    <div class="ml-auto flex items-center gap-4">
+      <span class="text-xs text-gray-500" id="status-bar"></span>
+      <button onclick="restartGateway()" id="restart-gw-btn" class="px-3 py-1.5 text-xs font-medium bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg transition flex items-center gap-1.5">⟳ Restart Gateway</button>
+    </div>
   </nav>
 
   <!-- Content -->
@@ -1611,6 +1614,24 @@ function toast(msg, color = 'blue') {
   const bg = color === 'green' ? 'bg-green-600' : color === 'red' ? 'bg-red-600' : 'bg-blue-600';
   t.className = `fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all duration-300 ${bg} text-white z-50`;
   setTimeout(() => { t.classList.add('opacity-0', 'translate-y-16'); }, 2500);
+}
+
+async function restartGateway() {
+  const btn = document.getElementById('restart-gw-btn');
+  if (!confirm('Restart the OpenClaw gateway?')) return;
+  btn.disabled = true;
+  btn.innerHTML = '⟳ Restarting...';
+  try {
+    await api('POST', '/api/gateway/restart');
+    toast('Gateway restart triggered', 'green');
+  } catch (e) {
+    toast(e.message, 'red');
+  } finally {
+    setTimeout(() => {
+      btn.disabled = false;
+      btn.innerHTML = '⟳ Restart Gateway';
+    }, 3000);
+  }
 }
 
 function esc(s) {

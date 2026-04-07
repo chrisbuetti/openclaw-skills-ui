@@ -4,7 +4,6 @@ A web dashboard for managing OpenClaw agent skills, groups, and access control.
 
 OpenClaw Manager gives you a visual interface to organize which skills each agent can access using a tag-based system. Instead of manually editing JSON config files, you define tags (groups), assign them to skills and agents, and sync the computed allowlists to OpenClaw's config.
 
-![Screenshot placeholder](docs/screenshot.png)
 
 ## Prerequisites
 

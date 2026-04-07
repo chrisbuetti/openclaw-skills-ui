@@ -540,6 +540,18 @@ async def sync_skill_access(body: SyncRequest):
     return result
 
 
+# --- Gateway ---
+
+@app.post("/api/gateway/restart")
+async def api_restart_gateway():
+    """Restart the OpenClaw gateway."""
+    try:
+        subprocess.Popen(["openclaw", "gateway", "restart"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Skills ---
 
 
