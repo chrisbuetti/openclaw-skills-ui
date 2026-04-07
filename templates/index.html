@@ -549,6 +549,7 @@ async function selectAgent(name) {
             <div class="text-xs text-gray-500 mt-0.5 truncate max-w-lg">${esc((s.description || '').slice(0, 120))}</div>
           </div>
           <div class="flex gap-2 shrink-0">
+            <button onclick="promoteSkillToGlobal('${esc(a.name)}', '${esc(s.folder)}')" class="text-xs text-amber-400 hover:text-amber-300" title="Move this skill to global so all agents can access it">Make Global</button>
             <button onclick="navigate('skills'); setTimeout(() => selectSkill('${esc(a.name)}/${esc(s.folder)}'), 100)" class="text-xs text-blue-400 hover:text-blue-300">Edit</button>
             <button onclick="showCopyMoveModal('${esc(a.name)}', '${esc(s.folder)}')" class="text-xs text-gray-400 hover:text-gray-300">Copy/Move</button>
           </div>
@@ -992,6 +993,23 @@ function showCopyMoveModal(sourceAgent, folder) {
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function promoteSkillToGlobal(agent, folder) {
+  if (!confirm(`Make "${folder}" a global skill? This moves it from ${agent}'s workspace to ~/.openclaw/skills/ so all agents can access it.`)) return;
+  try {
+    await api('POST', '/api/skills/promote-to-global', { source_agent: agent, folder, remove_original: true });
+    toast(`${folder} promoted to global`, 'green');
+    // Refresh the current view
+    await loadDashboard();
+    if (state.currentPage === 'agents' && state.selectedAgent) {
+      selectAgent(state.selectedAgent);
+    } else if (state.currentPage === 'dashboard') {
+      renderDashboard();
+    }
+  } catch (e) {
+    toast(e.message, 'red');
+  }
 }
 
 async function doCopySkill(source, folder) {

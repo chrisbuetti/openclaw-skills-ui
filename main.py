@@ -719,6 +719,36 @@ async def delete_skill(workspace: str, folder: str):
     return {"ok": True}
 
 
+class SkillPromote(BaseModel):
+    source_agent: str  # agent name (workspace)
+    folder: str
+    remove_original: bool = True  # move vs copy to global
+
+
+@app.post("/api/skills/promote-to-global")
+async def promote_skill_to_global(body: SkillPromote):
+    """Promote a per-agent skill to global (~/.openclaw/skills/).
+    
+    This moves (or copies) the skill folder from workspace-<agent>/skills/<folder>
+    to ~/.openclaw/skills/<folder>, making it available to all agents.
+    """
+    src = os.path.join(OCPLATFORM_DIR, f"workspace-{body.source_agent}", "skills", body.folder)
+    dst = os.path.join(GLOBAL_SKILLS_DIR, body.folder)
+
+    if not os.path.isdir(src):
+        raise HTTPException(status_code=404, detail="Source skill not found")
+    if os.path.exists(dst):
+        raise HTTPException(status_code=409, detail=f"A global skill named '{body.folder}' already exists")
+
+    os.makedirs(GLOBAL_SKILLS_DIR, exist_ok=True)
+    if body.remove_original:
+        shutil.move(src, dst)
+    else:
+        shutil.copytree(src, dst)
+    restart_gateway()
+    return {"ok": True, "new_id": f"global/{body.folder}"}
+
+
 class SkillCopy(BaseModel):
     source_agent: str  # agent name or "__global__"
     target_agent: str  # agent name or "__global__"
