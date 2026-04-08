@@ -259,6 +259,14 @@
   <!-- Toast -->
   <div id="toast" class="fixed bottom-6 right-6 px-5 py-3 rounded-lg text-sm font-medium shadow-xl transition-all duration-300 translate-y-16 opacity-0 pointer-events-none z-50"></div>
 
+  <!-- Loading Overlay -->
+  <div id="loading-overlay" class="fixed inset-0 bg-black/70 z-50 hidden flex items-center justify-center">
+    <div class="flex flex-col items-center gap-4">
+      <div class="w-10 h-10 border-4 border-gray-600 border-t-blue-400 rounded-full animate-spin"></div>
+      <p id="loading-text" class="text-gray-300 text-sm font-medium">Loading...</p>
+    </div>
+  </div>
+
   <!-- Copy/Move Modal -->
   <div id="modal-overlay" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center">
     <div class="bg-gray-900 rounded-xl border border-gray-700 shadow-2xl w-96 p-6" id="modal-content"></div>
@@ -294,6 +302,14 @@ let state = {
     options: ['off', 'on'],
   },
 };
+
+function showLoading(msg = 'Loading...') {
+  document.getElementById('loading-text').textContent = msg;
+  document.getElementById('loading-overlay').classList.remove('hidden');
+}
+function hideLoading() {
+  document.getElementById('loading-overlay').classList.add('hidden');
+}
 
 function vlog(...args) {
   if (!state.settings?.verbose_logging) return;
@@ -935,6 +951,7 @@ async function saveCurrentSkill() {
     description: document.getElementById('sedit-desc').value,
     instructions: document.getElementById('sedit-inst').value,
   };
+  showLoading('Saving skill...');
   try {
     if (s.tier === 'global') {
       await api('PUT', `/api/skills/global/${s.folder}`, body);
@@ -947,11 +964,14 @@ async function saveCurrentSkill() {
     renderSkillSidebar();
   } catch (e) {
     toast(e.message, 'red');
+  } finally {
+    hideLoading();
   }
 }
 
 async function deleteSkill(agent, folder) {
   if (!confirm(`Delete skill "${folder}" from ${agent === '__global__' ? 'global' : agent}? This removes the entire folder from disk.`)) return;
+  showLoading('Deleting skill...');
   try {
     await api('DELETE', `/api/skills/${agent}/${folder}`);
     toast('Skill deleted', 'green');
@@ -962,6 +982,8 @@ async function deleteSkill(agent, folder) {
     renderSkillSidebar();
   } catch (e) {
     toast(e.message, 'red');
+  } finally {
+    hideLoading();
   }
 }
 
@@ -1090,10 +1112,10 @@ function closeModal() {
 
 async function promoteSkillToGlobal(agent, folder) {
   if (!confirm(`Make "${folder}" a global skill? This moves it from ${agent}'s workspace to ~/.openclaw/skills/ so all agents can access it.`)) return;
+  showLoading('Promoting to global...');
   try {
     await api('POST', '/api/skills/promote-to-global', { source_agent: agent, folder, remove_original: true });
     toast(`${folder} promoted to global`, 'green');
-    // Refresh the current view
     await loadDashboard();
     if (state.currentPage === 'agents' && state.selectedAgent) {
       selectAgent(state.selectedAgent);
@@ -1102,11 +1124,14 @@ async function promoteSkillToGlobal(agent, folder) {
     }
   } catch (e) {
     toast(e.message, 'red');
+  } finally {
+    hideLoading();
   }
 }
 
 async function doCopySkill(source, folder) {
   const target = document.getElementById('modal-target').value;
+  showLoading('Copying skill...');
   try {
     await api('POST', '/api/skills/copy', { source_agent: source, target_agent: target, folder });
     toast(`Copied ${folder} to ${target}`, 'green');
@@ -1116,11 +1141,14 @@ async function doCopySkill(source, folder) {
     if (state.currentPage === 'agents' || state.currentPage === 'dashboard') { await loadDashboard(); renderDashboard(); }
   } catch (e) {
     toast(e.message, 'red');
+  } finally {
+    hideLoading();
   }
 }
 
 async function doMoveSkill(source, folder) {
   const target = document.getElementById('modal-target').value;
+  showLoading('Moving skill...');
   try {
     await api('POST', '/api/skills/move', { source_agent: source, target_agent: target, folder });
     toast(`Moved ${folder} to ${target}`, 'green');
@@ -1135,6 +1163,8 @@ async function doMoveSkill(source, folder) {
     if (state.currentPage === 'agents') { await loadDashboard(); if (state.selectedAgent) selectAgent(state.selectedAgent); }
   } catch (e) {
     toast(e.message, 'red');
+  } finally {
+    hideLoading();
   }
 }
 
