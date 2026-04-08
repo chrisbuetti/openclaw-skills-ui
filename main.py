@@ -14,9 +14,29 @@ import json
 import shutil
 
 
+def find_openclaw_binary() -> str:
+    """Auto-detect the ocplatform binary."""
+    found = shutil.which("openclaw")
+    if found:
+        return found
+    candidates = [
+        "/opt/homebrew/bin/ocplatform",
+        "/usr/local/bin/openclaw",
+        "/usr/bin/openclaw",
+        os.path.expanduser("~/.local/bin/openclaw"),
+    ]
+    for c in candidates:
+        if os.path.isfile(c) and os.access(c, os.X_OK):
+            return c
+    return "openclaw"  # fallback to bare name
+
+
+OCPLATFORM_BIN = find_openclaw_binary()
+
+
 def restart_gateway():
     try:
-        subprocess.run(["/opt/homebrew/bin/openclaw", "gateway", "restart"], check=True)
+        subprocess.run([OCPLATFORM_BIN, "gateway", "restart"], check=True)
     except Exception as e:
         print("Failed to restart gateway:", e)
 
@@ -46,7 +66,15 @@ def detect_npm_skills_dir() -> str:
                 return p
     except Exception:
         pass
-    # Fallback (may not exist)
+    # Fallback — try to derive from the binary location
+    bin_path = find_openclaw_binary()
+    if bin_path and bin_path != "openclaw":
+        # e.g. /opt/homebrew/bin/openclaw -> /opt/homebrew/lib/node_modules/openclaw/skills
+        bin_dir = os.path.dirname(bin_path)
+        parent = os.path.dirname(bin_dir)
+        candidate = os.path.join(parent, "lib", "node_modules", "openclaw", "skills")
+        if os.path.isdir(candidate):
+            return candidate
     return "/opt/homebrew/lib/node_modules/openclaw/skills"
 
 
@@ -345,8 +373,12 @@ def scan_agents() -> list[dict]:
                     val = line.split(":**")[1].strip()
                     identity_data[key] = val
 
-        # Get model from config
-        model_raw = agent_cfg.get("model", "unknown")
+        # Get model from config, fall back to MODEL file in workspace
+        model_raw = agent_cfg.get("model", "")
+        if not model_raw and has_workspace and "MODEL" in files:
+            model_raw = files["MODEL"].strip()
+        if not model_raw:
+            model_raw = "unknown"
         model = get_model_display(model_raw)
 
         # Display name: config identity > IDENTITY.md > id titlecased
@@ -783,7 +815,7 @@ async def api_restart_gateway():
     """Restart the OpenClaw gateway."""
     try:
         log_verbose("Restarting gateway from UI")
-        subprocess.Popen(["/opt/homebrew/bin/openclaw", "gateway", "restart"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen([OCPLATFORM_BIN, "gateway", "restart"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
