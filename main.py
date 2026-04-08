@@ -2,6 +2,7 @@ import os
 import re
 import glob
 import subprocess
+import logging
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -15,7 +16,7 @@ import shutil
 
 def restart_gateway():
     try:
-        subprocess.run(["openclaw", "gateway", "restart"], check=True)
+        subprocess.run(["/opt/homebrew/bin/openclaw", "gateway", "restart"], check=True)
     except Exception as e:
         print("Failed to restart gateway:", e)
 
@@ -65,6 +66,11 @@ CONFIG_PATH = os.path.join(OCPLATFORM_DIR, "openclaw.json")
 AGENT_CLS_PATH = os.path.join(OCPLATFORM_DIR, "agent-classifications.json")
 SKILL_ACCESS_PATH = os.path.join(OCPLATFORM_DIR, "skill-access.json")
 SYNC_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "sync-skill-access.sh")
+UI_SETTINGS_PATH = os.path.join(OCPLATFORM_DIR, "openclaw-skills-ui.json")
+
+
+logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
+logger = logging.getLogger("openclaw-skills-ui")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -118,6 +124,88 @@ def load_skill_access() -> dict:
 def save_skill_access(data: dict):
     with open(SKILL_ACCESS_PATH, "w") as f:
         json.dump(data, f, indent=4)
+
+
+LOGGING_LEVEL_OPTIONS = ["silent", "fatal", "error", "warn", "info", "debug", "trace"]
+VERBOSE_DEFAULT_OPTIONS = ["off", "on"]
+
+
+def load_ui_settings() -> dict:
+    if os.path.exists(UI_SETTINGS_PATH):
+        with open(UI_SETTINGS_PATH) as f:
+            data = json.load(f)
+    else:
+        data = {}
+    data.setdefault("verbose_logging", False)
+    return data
+
+
+def save_ui_settings(data: dict):
+    os.makedirs(os.path.dirname(UI_SETTINGS_PATH), exist_ok=True)
+    with open(UI_SETTINGS_PATH, "w") as f:
+        json.dump(data, f, indent=4)
+
+
+def is_verbose_logging_enabled() -> bool:
+    return bool(load_ui_settings().get("verbose_logging", False))
+
+
+def log_verbose(message: str, **context):
+    if not is_verbose_logging_enabled():
+        return
+    if context:
+        logger.info("[verbose] %s | %s", message, json.dumps(context, default=str, sort_keys=True))
+    else:
+        logger.info("[verbose] %s", message)
+
+
+def save_config(config: dict):
+    with open(CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+
+
+def get_logging_settings() -> dict:
+    config = load_config()
+    logging_cfg = config.get("logging", {})
+    current_level = logging_cfg.get("level", "info")
+    if current_level not in LOGGING_LEVEL_OPTIONS:
+        current_level = "info"
+    return {
+        "level": current_level,
+        "options": LOGGING_LEVEL_OPTIONS,
+    }
+
+
+def get_verbose_default_settings() -> dict:
+    config = load_config()
+    agent_defaults = config.get("agents", {}).get("defaults", {})
+    current_value = agent_defaults.get("verboseDefault", "off")
+    if current_value not in VERBOSE_DEFAULT_OPTIONS:
+        current_value = "off"
+    return {
+        "value": current_value,
+        "options": VERBOSE_DEFAULT_OPTIONS,
+    }
+
+
+def save_logging_level(level: str):
+    if level not in LOGGING_LEVEL_OPTIONS:
+        raise ValueError(f"Invalid logging level: {level}")
+    config = load_config()
+    logging_cfg = config.setdefault("logging", {})
+    logging_cfg["level"] = level
+    save_config(config)
+
+
+def save_verbose_default(value: str):
+    if value not in VERBOSE_DEFAULT_OPTIONS:
+        raise ValueError(f"Invalid verboseDefault value: {value}")
+    config = load_config()
+    agents_cfg = config.setdefault("agents", {})
+    defaults_cfg = agents_cfg.setdefault("defaults", {})
+    defaults_cfg["verboseDefault"] = value
+    save_config(config)
 
 
 def run_sync_script(dry_run: bool = False) -> dict:
@@ -517,6 +605,9 @@ async def dashboard():
     classifications = scan_classifications()
     cls_map = load_classifications_map()
     skill_access = load_skill_access()
+    ui_settings = load_ui_settings()
+    logging_settings = get_logging_settings()
+    verbose_default_settings = get_verbose_default_settings()
 
     return {
         "agents": agents,
@@ -529,6 +620,9 @@ async def dashboard():
         "classifications": classifications,
         "classifications_map": cls_map,
         "skill_access": skill_access,
+        "ui_settings": ui_settings,
+        "logging_settings": logging_settings,
+        "verbose_default_settings": verbose_default_settings,
     }
 
 
@@ -545,7 +639,64 @@ async def save_skill_access_config(request: Request):
     """Save the full skill-access.json config."""
     data = await request.json()
     save_skill_access(data)
+    log_verbose("Saved skill access config")
     return {"ok": True}
+
+
+@app.get("/api/settings")
+async def get_ui_settings():
+    return {
+        "ui_settings": load_ui_settings(),
+        "logging_settings": get_logging_settings(),
+        "verbose_default_settings": get_verbose_default_settings(),
+    }
+
+
+class UISettingsUpdate(BaseModel):
+    verbose_logging: bool
+
+
+@app.put("/api/settings")
+async def save_settings(body: UISettingsUpdate):
+    data = load_ui_settings()
+    data["verbose_logging"] = body.verbose_logging
+    save_ui_settings(data)
+    logger.setLevel(logging.INFO)
+    logger.info("UI verbose logging %s", "enabled" if body.verbose_logging else "disabled")
+    return {
+        "ok": True,
+        "settings": data,
+        "logging_settings": get_logging_settings(),
+        "verbose_default_settings": get_verbose_default_settings(),
+    }
+
+
+class VerboseDefaultUpdate(BaseModel):
+    value: str
+
+
+@app.put("/api/settings/verbose-default")
+async def update_verbose_default(body: VerboseDefaultUpdate):
+    try:
+        save_verbose_default(body.value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    log_verbose("Updated OpenClaw verboseDefault", value=body.value)
+    return {"ok": True, "verbose_default_settings": get_verbose_default_settings()}
+
+
+class LoggingLevelUpdate(BaseModel):
+    level: str
+
+
+@app.put("/api/settings/logging-level")
+async def update_logging_level(body: LoggingLevelUpdate):
+    try:
+        save_logging_level(body.level)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    log_verbose("Updated OpenClaw logging level", level=body.level)
+    return {"ok": True, "logging_settings": get_logging_settings()}
 
 
 class TagCreate(BaseModel):
@@ -631,7 +782,8 @@ async def sync_skill_access(body: SyncRequest):
 async def api_restart_gateway():
     """Restart the OpenClaw gateway."""
     try:
-        subprocess.Popen(["openclaw", "gateway", "restart"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        log_verbose("Restarting gateway from UI")
+        subprocess.Popen(["/opt/homebrew/bin/openclaw", "gateway", "restart"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

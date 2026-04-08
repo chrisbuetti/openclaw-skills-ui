@@ -53,6 +53,22 @@
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
     <div class="ml-auto flex items-center gap-4">
+      <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer">
+        <input id="verbose-default-toggle" type="checkbox" onchange="toggleVerboseDefault(this.checked)" class="rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500/40" />
+        <span>Verbose default</span>
+      </label>
+      <label class="flex items-center gap-2 text-xs text-gray-400">
+        <span>Logging level</span>
+        <select id="logging-level-select" onchange="changeLoggingLevel(this.value)" class="px-2 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+          <option value="silent">silent</option>
+          <option value="fatal">fatal</option>
+          <option value="error">error</option>
+          <option value="warn">warn</option>
+          <option value="info">info</option>
+          <option value="debug">debug</option>
+          <option value="trace">trace</option>
+        </select>
+      </label>
       <span class="text-xs text-gray-500" id="status-bar"></span>
       <button onclick="restartGateway()" id="restart-gw-btn" class="px-3 py-1.5 text-xs font-medium bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 rounded-lg transition flex items-center gap-1.5">⟳ Restart Gateway</button>
     </div>
@@ -266,20 +282,40 @@ let state = {
   dirty: false,
   skillAccess: null,
   selectedGroup: null,
+  settings: {
+    verbose_logging: false,
+  },
+  loggingSettings: {
+    level: 'info',
+    options: ['silent', 'fatal', 'error', 'warn', 'info', 'debug', 'trace'],
+  },
+  verboseDefaultSettings: {
+    value: 'off',
+    options: ['off', 'on'],
+  },
 };
+
+function vlog(...args) {
+  if (!state.settings?.verbose_logging) return;
+  console.log('[OpenClaw Manager]', ...args);
+}
 
 // ═══════════════════════════════════════════════════════════
 // API
 // ═══════════════════════════════════════════════════════════
 async function api(method, path, body) {
+  vlog('API request', { method, path, body });
   const opts = { method, headers: { 'Content-Type': 'application/json' } };
   if (body) opts.body = JSON.stringify(body);
   const res = await fetch(path, opts);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: 'Request failed' }));
+    vlog('API error', { method, path, status: res.status, error: err });
     throw new Error(err.detail || 'Request failed');
   }
-  return res.json();
+  const data = await res.json();
+  vlog('API response', { method, path, data });
+  return data;
 }
 
 async function loadDashboard() {
@@ -288,12 +324,19 @@ async function loadDashboard() {
   state.agents = state.dashboard.agents;
   state.classifications = state.dashboard.classifications;
   state.classificationsMap = state.dashboard.classifications_map;
+  state.settings = { ...state.settings, ...(state.dashboard.ui_settings || {}) };
+  state.loggingSettings = { ...state.loggingSettings, ...(state.dashboard.logging_settings || {}) };
+  state.verboseDefaultSettings = { ...state.verboseDefaultSettings, ...(state.dashboard.verbose_default_settings || {}) };
+  syncVerboseDefaultToggle();
+  syncLoggingLevelSelect();
+  vlog('Dashboard loaded', { agents: state.agents.length, settings: state.settings, loggingSettings: state.loggingSettings, verboseDefaultSettings: state.verboseDefaultSettings });
   document.getElementById('status-bar').innerHTML = `<span class="text-green-500">${state.agents.length} agents</span>`;
 }
 
 async function loadSkills() {
   document.getElementById('status-bar').innerHTML = '<span class="text-gray-500">Loading...</span>';
   state.skills = await api('GET', '/api/skills');
+  vlog('Skills loaded', { count: state.skills.length });
   document.getElementById('status-bar').innerHTML = `<span class="text-green-500">${state.skills.length} skills</span>`;
 }
 
@@ -301,6 +344,7 @@ async function loadSkills() {
 // Navigation
 // ═══════════════════════════════════════════════════════════
 async function navigate(page) {
+  vlog('Navigating', { page });
   state.currentPage = page;
   document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
   document.getElementById(`page-${page}`).classList.remove('hidden');
@@ -339,7 +383,56 @@ async function navigate(page) {
     }
   } catch (e) {
     console.error(`Failed to load ${page}:`, e);
+    vlog('Navigation failed', { page, message: e.message });
     showPageError(page, e.message);
+  }
+}
+
+function syncVerboseDefaultToggle() {
+  const toggle = document.getElementById('verbose-default-toggle');
+  if (toggle) toggle.checked = state.verboseDefaultSettings?.value === 'on';
+}
+
+function syncLoggingLevelSelect() {
+  const select = document.getElementById('logging-level-select');
+  if (!select) return;
+
+  const options = state.loggingSettings?.options || [];
+  const current = state.loggingSettings?.level || 'info';
+  select.innerHTML = options.map(level => `<option value="${esc(level)}">${esc(level)}</option>`).join('');
+  select.value = current;
+}
+
+async function toggleVerboseDefault(enabled) {
+  const value = enabled ? 'on' : 'off';
+  try {
+    const result = await api('PUT', '/api/settings/verbose-default', { value });
+    if (result.verbose_default_settings) {
+      state.verboseDefaultSettings = { ...state.verboseDefaultSettings, ...result.verbose_default_settings };
+    } else {
+      state.verboseDefaultSettings = { ...state.verboseDefaultSettings, value };
+    }
+    syncVerboseDefaultToggle();
+    toast(`Verbose default ${state.verboseDefaultSettings.value}`, 'green');
+    vlog('Verbose default toggled', { value: state.verboseDefaultSettings.value });
+  } catch (e) {
+    syncVerboseDefaultToggle();
+    toast(e.message, 'red');
+  }
+}
+
+async function changeLoggingLevel(level) {
+  const previous = state.loggingSettings?.level || 'info';
+  try {
+    const result = await api('PUT', '/api/settings/logging-level', { level });
+    if (result.logging_settings) state.loggingSettings = { ...state.loggingSettings, ...result.logging_settings };
+    syncLoggingLevelSelect();
+    toast(`Logging level set to ${state.loggingSettings.level}`, 'green');
+    vlog('Logging level changed', { level: state.loggingSettings.level });
+  } catch (e) {
+    state.loggingSettings = { ...state.loggingSettings, level: previous };
+    syncLoggingLevelSelect();
+    toast(e.message, 'red');
   }
 }
 
