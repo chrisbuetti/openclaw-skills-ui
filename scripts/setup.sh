@@ -91,6 +91,55 @@ if [[ -d "$AGENTS_DIR" ]]; then
   done
 
   echo "  Workspaces: ${ws_renamed} renamed, ${ws_created} created, ${ws_skipped} already existed"
+
+  # Clean up explicit workspace/agentDir paths in openclaw.json
+  # so agents use the standard workspace-{id} convention
+  if [[ -f "$CONFIG_FILE" ]] && command -v jq &>/dev/null; then
+    config_changed=false
+    TMPFILE=$(mktemp)
+    cp "$CONFIG_FILE" "$TMPFILE"
+
+    AGENT_COUNT=$(jq '.agents.list | length' "$TMPFILE" 2>/dev/null || echo 0)
+    for i in $(seq 0 $((AGENT_COUNT - 1))); do
+      aid=$(jq -r ".agents.list[$i].id" "$TMPFILE" 2>/dev/null)
+      ws=$(jq -r ".agents.list[$i].workspace // empty" "$TMPFILE" 2>/dev/null)
+      adir=$(jq -r ".agents.list[$i].agentDir // empty" "$TMPFILE" 2>/dev/null)
+
+      if [[ -n "$ws" ]]; then
+        expected_ws="${OC_DIR}/workspace-${aid}"
+        # For main agent, the default convention works without explicit path
+        if [[ "$aid" == "main" ]] || [[ "$ws" != "$expected_ws" && -d "${OC_DIR}/workspace-${aid}" ]]; then
+          echo "  🔧 $aid — removing explicit workspace path from config (convention will be used)"
+          jq ".agents.list[$i] |= del(.workspace)" "$TMPFILE" > "${TMPFILE}.2" && mv "${TMPFILE}.2" "$TMPFILE"
+          config_changed=true
+        fi
+      fi
+
+      if [[ -n "$adir" ]]; then
+        echo "  🔧 $aid — removing explicit agentDir from config"
+        jq ".agents.list[$i] |= del(.agentDir)" "$TMPFILE" > "${TMPFILE}.2" && mv "${TMPFILE}.2" "$TMPFILE"
+        config_changed=true
+      fi
+    done
+
+    # Also remove defaults.workspace if it just points to the standard location
+    default_ws=$(jq -r '.agents.defaults.workspace // empty' "$TMPFILE" 2>/dev/null)
+    if [[ -n "$default_ws" && "$default_ws" == "${OC_DIR}/workspace" ]]; then
+      echo "  🔧 Removing redundant defaults.workspace from config"
+      jq '.agents.defaults |= del(.workspace)' "$TMPFILE" > "${TMPFILE}.2" && mv "${TMPFILE}.2" "$TMPFILE"
+      config_changed=true
+    fi
+
+    if [[ "$config_changed" == "true" ]]; then
+      # Backup and apply
+      cp "$CONFIG_FILE" "${CONFIG_FILE}.bak"
+      mv "$TMPFILE" "$CONFIG_FILE"
+      echo "  ✅ Updated openclaw.json (backup at openclaw.json.bak)"
+    else
+      rm -f "$TMPFILE"
+      echo "  ✅ No config changes needed"
+    fi
+  fi
 else
   echo "  No agents directory found, skipping."
 fi

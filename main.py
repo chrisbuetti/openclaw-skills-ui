@@ -106,7 +106,20 @@ logger = logging.getLogger("openclaw-skills-ui")
 # ──────────────────────────────────────────────────────────────
 
 def resolve_workspace_dir(agent_name: str) -> str:
-    """Resolve the workspace directory for an agent. 'main' uses workspace/, others use workspace-<name>/."""
+    """Resolve the workspace directory for an agent.
+    
+    Checks openclaw.json for an explicit workspace path first,
+    then falls back to convention: 'main' uses workspace/, others use workspace-<name>/.
+    """
+    # Check config for explicit workspace path
+    config = load_config()
+    for agent_cfg in config.get("agents", {}).get("list", []):
+        if agent_cfg.get("id") == agent_name:
+            explicit = agent_cfg.get("workspace", "")
+            if explicit and os.path.isdir(explicit):
+                return explicit
+            break
+    # Convention fallback
     if agent_name == "main":
         return MAIN_WORKSPACE_DIR
     return os.path.join(OCPLATFORM_DIR, f"workspace-{agent_name}")
