@@ -1098,12 +1098,89 @@ class ClassificationUpdate(BaseModel):
     content: str
 
 
+class ClassificationCreate(BaseModel):
+    name: str
+    content: str = ""
+
+
+class ClassificationRename(BaseModel):
+    new_name: str
+
+
+@app.post("/api/classifications")
+async def create_classification(body: ClassificationCreate):
+    """Create a new classification rule file."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    # Sanitize: only allow alphanumeric, hyphens, underscores
+    safe_name = re.sub(r'[^a-zA-Z0-9_-]', '-', name).strip('-').lower()
+    if not safe_name:
+        raise HTTPException(status_code=400, detail="Invalid name")
+    os.makedirs(CLASSIFICATIONS_DIR, exist_ok=True)
+    path = os.path.join(CLASSIFICATIONS_DIR, f"{safe_name}.md")
+    if os.path.exists(path):
+        raise HTTPException(status_code=409, detail=f"Classification '{safe_name}' already exists")
+    content = body.content or f"# Classification: {name}\n\nDefine rules for the **{name}** classification here.\n"
+    Path(path).write_text(content, encoding="utf-8")
+    restart_gateway()
+    return {"ok": True, "name": safe_name}
+
+
 @app.put("/api/classifications/{name}")
 async def update_classification(name: str, body: ClassificationUpdate):
     path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
     if not os.path.exists(path):
         raise HTTPException(status_code=404, detail="Classification not found")
     Path(path).write_text(body.content, encoding="utf-8")
+    restart_gateway()
+    return {"ok": True}
+
+
+@app.put("/api/classifications/{name}/rename")
+async def rename_classification(name: str, body: ClassificationRename):
+    """Rename a classification: renames file and updates agent-classifications.json."""
+    old_path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
+    if not os.path.exists(old_path):
+        raise HTTPException(status_code=404, detail="Classification not found")
+    new_name = re.sub(r'[^a-zA-Z0-9_-]', '-', body.new_name.strip()).strip('-').lower()
+    if not new_name:
+        raise HTTPException(status_code=400, detail="Invalid new name")
+    if new_name == name:
+        return {"ok": True, "name": name}
+    new_path = os.path.join(CLASSIFICATIONS_DIR, f"{new_name}.md")
+    if os.path.exists(new_path):
+        raise HTTPException(status_code=409, detail=f"Classification '{new_name}' already exists")
+    os.rename(old_path, new_path)
+    # Update agent-classifications.json references
+    cls_map = load_classifications_map()
+    updated = False
+    for agent_key, cls_val in list(cls_map.items()):
+        if cls_val == name:
+            cls_map[agent_key] = new_name
+            updated = True
+    if updated:
+        save_classifications_map(cls_map)
+    restart_gateway()
+    return {"ok": True, "name": new_name}
+
+
+@app.delete("/api/classifications/{name}")
+async def delete_classification(name: str):
+    """Delete a classification rule file and unassign all agents from it."""
+    path = os.path.join(CLASSIFICATIONS_DIR, f"{name}.md")
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Classification not found")
+    os.remove(path)
+    # Unassign agents that were in this classification
+    cls_map = load_classifications_map()
+    updated = False
+    for agent_key, cls_val in list(cls_map.items()):
+        if cls_val == name:
+            del cls_map[agent_key]
+            updated = True
+    if updated:
+        save_classifications_map(cls_map)
     restart_gateway()
     return {"ok": True}
 

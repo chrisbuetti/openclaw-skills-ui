@@ -238,7 +238,8 @@
     <!-- Rules Page -->
     <div id="page-rules" class="page hidden h-full flex">
       <aside class="w-72 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
-        <div class="p-3">
+        <div class="p-3 space-y-2">
+          <button onclick="showCreateRule()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Rule</button>
           <p class="text-xs text-gray-500 px-1">Classification rules define agent behavior boundaries</p>
         </div>
         <div id="rules-sidebar-list" class="flex-1 overflow-y-auto px-2 pb-4 space-y-0.5"></div>
@@ -249,9 +250,11 @@
           <div class="text-center">
             <div class="text-5xl mb-4">🏷️</div>
             <p class="text-lg">Select a classification rule</p>
+            <p class="text-sm mt-1">Or create a new one from the sidebar</p>
           </div>
         </div>
         <div id="rules-detail" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
+        <div id="rules-create" class="flex-1 overflow-hidden flex flex-col hidden fade-in"></div>
       </div>
     </div>
   </div>
@@ -1171,16 +1174,21 @@ async function doMoveSkill(source, folder) {
 // ═══════════════════════════════════════════════════════════
 // Rules Page
 // ═══════════════════════════════════════════════════════════
+const RULE_COLORS = ['green', 'purple', 'blue', 'amber', 'pink', 'teal', 'rose', 'indigo'];
+function ruleColor(name, index) {
+  return RULE_COLORS[index % RULE_COLORS.length];
+}
+
 function renderRulesSidebar() {
   const list = document.getElementById('rules-sidebar-list');
   if (!state.classifications.length) {
-    list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No classifications found</div>';
+    list.innerHTML = '<div class="px-4 py-8 text-center text-gray-600 text-sm">No classifications found.<br>Create one with the button above.</div>';
     return;
   }
-  list.innerHTML = state.classifications.map(c => {
+  list.innerHTML = state.classifications.map((c, i) => {
     const active = c.name === state.selectedRule;
     const count = state.agents.filter(a => a.classification === c.name).length;
-    const color = c.name === 'partnrup' ? 'purple' : 'green';
+    const color = ruleColor(c.name, i);
     return `
       <button onclick="selectRule('${esc(c.name)}')"
         class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
@@ -1193,30 +1201,93 @@ function renderRulesSidebar() {
   }).join('');
 }
 
+function hideAllRulePanels() {
+  document.getElementById('rules-empty').classList.add('hidden');
+  document.getElementById('rules-detail').classList.add('hidden');
+  document.getElementById('rules-create').classList.add('hidden');
+}
+
+function showCreateRule() {
+  state.selectedRule = null;
+  renderRulesSidebar();
+  hideAllRulePanels();
+  const panel = document.getElementById('rules-create');
+  panel.classList.remove('hidden');
+  panel.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 shrink-0">
+      <h2 class="text-xl font-semibold">Create New Rule</h2>
+      <p class="text-sm text-gray-500 mt-0.5">Classification rules define behavior boundaries for groups of agents</p>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Name</label>
+        <input id="new-rule-name" type="text" placeholder="e.g. personal, work, restricted"
+          class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
+        <p class="text-xs text-gray-500 mt-1">Lowercase, hyphens and underscores allowed. Will be sanitized automatically.</p>
+      </div>
+      <div class="flex-1 flex flex-col">
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Rules (Markdown)</label>
+        <textarea id="new-rule-content" placeholder="# Classification: my-rule&#10;&#10;Define rules for this classification here..."
+          class="w-full flex-1 px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-y"
+          style="min-height: 300px"></textarea>
+      </div>
+      <div class="flex gap-3">
+        <button onclick="createRule()" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">Create Rule</button>
+        <button onclick="cancelCreateRule()" class="px-5 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium rounded-lg transition">Cancel</button>
+      </div>
+    </div>`;
+  setTimeout(() => document.getElementById('new-rule-name').focus(), 50);
+}
+
+function cancelCreateRule() {
+  hideAllRulePanels();
+  document.getElementById('rules-empty').classList.remove('hidden');
+}
+
+async function createRule() {
+  const name = document.getElementById('new-rule-name').value.trim();
+  const content = document.getElementById('new-rule-content').value;
+  if (!name) { toast('Name is required', 'red'); return; }
+  try {
+    const res = await api('POST', '/api/classifications', { name, content: content || undefined });
+    toast(`Created rule "${res.name}"`, 'green');
+    await loadDashboard();
+    hideAllRulePanels();
+    selectRule(res.name);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
 function selectRule(name) {
   state.selectedRule = name;
   renderRulesSidebar();
   const c = state.classifications.find(c => c.name === name);
   if (!c) return;
 
-  document.getElementById('rules-empty').classList.add('hidden');
+  hideAllRulePanels();
   const detail = document.getElementById('rules-detail');
   detail.classList.remove('hidden');
 
   const agentsInCls = state.agents.filter(a => a.classification === name);
   const otherAgents = state.agents.filter(a => a.classification !== name);
-  const color = name === 'partnrup' ? 'purple' : 'green';
+  const idx = state.classifications.findIndex(x => x.name === name);
+  const color = ruleColor(name, idx >= 0 ? idx : 0);
 
   detail.innerHTML = `
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <div>
         <div class="flex items-center gap-3">
           <span class="w-3 h-3 rounded-full bg-${color}-400"></span>
-          <h2 class="text-xl font-semibold">${esc(name)} rules</h2>
+          <h2 class="text-xl font-semibold" id="rule-title">${esc(name)}</h2>
+          <button onclick="promptRenameRule('${esc(name)}')" class="text-xs text-gray-500 hover:text-blue-400 transition" title="Rename">✏️</button>
         </div>
         <p class="text-sm text-gray-500 mt-0.5">${esc(c.path)}</p>
       </div>
-      <button onclick="saveRule('${esc(name)}')" id="rule-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+      <div class="flex items-center gap-3">
+        <button onclick="deleteRule('${esc(name)}')" class="px-3 py-1.5 text-xs font-medium bg-red-600/20 hover:bg-red-600/30 text-red-300 rounded-lg transition">Delete</button>
+        <button onclick="saveRule('${esc(name)}')" id="rule-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+      </div>
     </header>
     <div class="flex-1 overflow-y-auto p-8 space-y-6">
       <div>
@@ -1254,6 +1325,38 @@ async function saveRule(name) {
     toast('Classification rules saved', 'green');
     document.getElementById('rule-save-btn').disabled = true;
     await loadDashboard();
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function promptRenameRule(name) {
+  const newName = prompt(`Rename "${name}" to:`, name);
+  if (!newName || newName.trim() === name) return;
+  try {
+    const res = await api('PUT', `/api/classifications/${name}/rename`, { new_name: newName.trim() });
+    toast(`Renamed to "${res.name}"`, 'green');
+    await loadDashboard();
+    selectRule(res.name);
+  } catch (e) {
+    toast(e.message, 'red');
+  }
+}
+
+async function deleteRule(name) {
+  const agentCount = state.agents.filter(a => a.classification === name).length;
+  const msg = agentCount > 0
+    ? `Delete "${name}"? ${agentCount} agent(s) will be unassigned.`
+    : `Delete "${name}"?`;
+  if (!confirm(msg)) return;
+  try {
+    await api('DELETE', `/api/classifications/${name}`);
+    toast(`Deleted "${name}"`, 'green');
+    state.selectedRule = null;
+    await loadDashboard();
+    hideAllRulePanels();
+    document.getElementById('rules-empty').classList.remove('hidden');
+    renderRulesSidebar();
   } catch (e) {
     toast(e.message, 'red');
   }
