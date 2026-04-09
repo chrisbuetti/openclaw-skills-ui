@@ -386,10 +386,15 @@ def scan_agents() -> list[dict]:
                     val = line.split(":**")[1].strip()
                     identity_data[key] = val
 
-        # Get model from config, fall back to MODEL file in workspace
+        # Get model from config, fall back to MODEL file, then defaults
         model_raw = agent_cfg.get("model", "")
         if not model_raw and has_workspace and "MODEL" in files:
             model_raw = files["MODEL"].strip()
+        if not model_raw:
+            # Fall back to agents.defaults.model from config
+            defaults_model = config.get("agents", {}).get("defaults", {}).get("model", "")
+            if defaults_model:
+                model_raw = defaults_model
         if not model_raw:
             model_raw = "unknown"
         model = get_model_display(model_raw)
