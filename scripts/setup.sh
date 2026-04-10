@@ -209,6 +209,35 @@ pip install -q -r "${REPO_DIR}/requirements.txt"
 echo "  Dependencies installed."
 echo ""
 
+# --- Patch OpenClaw for per-agent skill bin isolation ---
+# By default OpenClaw auto-approves exec calls for any bin a skill declares
+# in its `metadata.openclaw.requires.bins` list, and the trust set is a
+# UNION across every agent workspace on the host. That means a `gog` skill
+# installed in agent A's workspace silently approves `gog` execs issued by
+# agent B as well. The patcher below rewrites the installed OpenClaw's
+# SkillBinsCache so that auto-trust is scoped to the agent that actually
+# issued the exec. See scripts/patch-openclaw-isolation.py for details.
+echo "Patching OCPlatform for per-agent skill bin isolation..."
+if [[ -n "$NPM_SKILLS_DIR" ]]; then
+  OC_ROOT_DIR="$(dirname "$NPM_SKILLS_DIR")"
+  if python3 "${SCRIPT_DIR}/patch-openclaw-isolation.py" --oc-dir "$OC_ROOT_DIR"; then
+    echo "  ✅ Patch applied (or already present)."
+    echo "  ℹ️  Restart the OpenClaw gateway so the node host picks it up:"
+    echo "       ocplatform gateway restart"
+  else
+    status=$?
+    if [[ $status -eq 2 ]]; then
+      echo "  ⚠️  Patcher could not locate its anchor strings — OCPlatform may have been updated."
+      echo "      Original bundle left untouched; ping the skills-ui maintainers for an updated patch."
+    else
+      echo "  ⚠️  Patcher failed with exit $status; continuing setup."
+    fi
+  fi
+else
+  echo "  Skipping — OpenClaw install not detected above."
+fi
+echo ""
+
 # --- Done ---
 echo "=== Setup Complete ==="
 echo ""
