@@ -568,17 +568,22 @@ function renderSkillMatrix() {
     return;
   }
 
-  let html = '<table class="text-xs w-full"><thead><tr><th class="text-left px-2 py-1 text-gray-500 font-medium sticky left-0 bg-gray-900">Agent</th>';
-  skillNames.forEach(s => {
-    html += `<th class="px-2 py-1 text-gray-500 font-medium text-center" style="writing-mode: vertical-lr; transform: rotate(180deg); min-width: 28px; max-width: 28px;">${esc(s)}</th>`;
+  // Precompute each agent's skill set once
+  const agentSkillSets = d.agents.map(a => ({
+    agent: a,
+    skills: new Set(a.skills.map(s => s.folder)),
+  }));
+
+  let html = '<table class="text-xs w-full"><thead><tr><th class="text-left px-2 py-1 text-gray-500 font-medium sticky left-0 bg-gray-900">Skill</th>';
+  agentSkillSets.forEach(({ agent }) => {
+    html += `<th class="px-2 py-1 text-gray-500 font-medium text-center">${esc(agent.display_name)}</th>`;
   });
   html += '</tr></thead><tbody>';
 
-  d.agents.forEach(a => {
-    const agentSkills = new Set(a.skills.map(s => s.folder));
-    html += `<tr class="hover:bg-gray-800/50"><td class="px-2 py-1.5 text-gray-300 font-medium sticky left-0 bg-gray-900">${esc(a.display_name)}</td>`;
-    skillNames.forEach(s => {
-      const has = agentSkills.has(s);
+  skillNames.forEach(s => {
+    html += `<tr class="hover:bg-gray-800/50"><td class="px-2 py-1.5 text-gray-300 font-medium sticky left-0 bg-gray-900">${esc(s)}</td>`;
+    agentSkillSets.forEach(({ skills }) => {
+      const has = skills.has(s);
       html += `<td class="text-center px-2 py-1.5">${has ? '<span class="text-green-400">●</span>' : '<span class="text-gray-700">·</span>'}</td>`;
     });
     html += '</tr>';
