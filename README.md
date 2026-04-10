@@ -30,6 +30,8 @@ The setup script will:
 
 ### Per-Agent Skill Bin Isolation Patch
 
+> **📖 See [`docs/per-agent-exec-isolation.md`](docs/per-agent-exec-isolation.md) for the full operator guide**, including the three-step setup (patch + `exec-approvals.json` config + gateway restart), the default-`security:"full"` gotcha that makes the patch inert until you fix it, live test procedure, troubleshooting, rollback, and per-command-grant recipes. That doc is written in enough detail that another OpenClaw agent can replicate the setup as context without needing this summary.
+
 OpenClaw's `autoAllowSkills` exec-approval feature implicitly trusts any binary a skill declares under `metadata.openclaw.requires.bins` (or the legacy `clawdbot` root key). Upstream computes that trust set as the **union of every agent's workspace skills** and caches it shared across every exec on the host. In a multi-agent setup that means a skill in agent A's workspace silently auto-approves its bins for exec calls issued by agent B — the skills dashboard's per-agent scoping becomes advisory rather than enforced.
 
 `scripts/patch-ocplatform-isolation.py` rewrites the installed OCPlatform's node-host bundle (`dist/node-cli-*.js`) so that the bin trust set is computed per-agent, using the same tag-based resolution (`scan_agents()` in `main.py`) this dashboard already uses for its skill matrix. The patch:
