@@ -283,6 +283,15 @@ Expected:
 
 **This step is mandatory.** Without it the patch is completely inert.
 
+> **Automated option:** Instead of editing the file by hand, you can run:
+> ```bash
+> python3 scripts/configure-exec-approvals.py
+> ```
+> This walks you through agent selection interactively, backs up the
+> existing file, and writes the correct config. Run with `--dry-run` to
+> preview changes first. See `python3 scripts/configure-exec-approvals.py --help`
+> for non-interactive flags (`--sandbox`, `--sandbox-all`, `--main`).
+
 The reason: OpenClaw's fallback constants for exec approvals are
 
 ```
