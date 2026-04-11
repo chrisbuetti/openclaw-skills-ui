@@ -168,6 +168,25 @@ REPLACEMENT_RESOLVER_AND_INIT = """\tconst __ocIsolationResolveAgentBins = (() =
 \t\tconst ACCESS_FILE = path.join(OC_ROOT, \"skill-access.json\");
 \t\tconst MAIN_WS = path.join(OC_ROOT, \"workspace\");
 \t\tconst BIN_KEYS = [\"openclaw\", \"clawdbot\"];
+\t\t// Discover bundled skills shipped with the OpenClaw npm package.
+\t\t// The bundle runs from dist/node-cli-*.js, so ../../skills is the
+\t\t// package's own skills directory. Fallback candidates cover common
+\t\t// npm global roots on macOS/Linux.
+\t\tconst BUNDLED_SKILLS = (() => {
+\t\t\tconst candidates = [];
+\t\t\tif (typeof process.argv?.[1] === \"string\") {
+\t\t\t\tcandidates.push(path.resolve(path.dirname(process.argv[1]), \"..\", \"skills\"));
+\t\t\t}
+\t\t\tcandidates.push(
+\t\t\t\t\"/opt/homebrew/lib/node_modules/openclaw/skills\",
+\t\t\t\t\"/usr/local/lib/node_modules/openclaw/skills\",
+\t\t\t\t\"/usr/lib/node_modules/openclaw/skills\"
+\t\t\t);
+\t\t\tfor (const c of candidates) {
+\t\t\t\ttry { if (fs.statSync(c).isDirectory()) return c; } catch {}
+\t\t\t}
+\t\t\treturn null;
+\t\t})();
 \t\tconst walkBins = (obj, out) => {
 \t\t\tif (!obj || typeof obj !== \"object\") return;
 \t\t\tconst req = obj.requires;
@@ -191,14 +210,28 @@ REPLACEMENT_RESOLVER_AND_INIT = """\tconst __ocIsolationResolveAgentBins = (() =
 \t\t\t\tconst fmMatch = text.match(/^\\s*---\\s*\\n([\\s\\S]*?)\\n---/);
 \t\t\t\tif (!fmMatch) return [];
 \t\t\t\tconst fm = fmMatch[1];
-\t\t\t\t// Grab the `metadata:` line value (single-line JSON/JSON5-ish).
-\t\t\t\tconst metaMatch = fm.match(/^metadata\\s*:\\s*(.+)$/m);
-\t\t\t\tif (!metaMatch) return [];
-\t\t\t\tlet raw = metaMatch[1].trim();
+\t\t\t\t// Find the metadata field in the frontmatter.
+\t\t\t\tconst metaLineMatch = fm.match(/^metadata\\s*:\\s*(.*)$/m);
+\t\t\t\tif (!metaLineMatch) return [];
+\t\t\t\tconst firstLineVal = metaLineMatch[1].trim();
+\t\t\t\tlet raw = \"\";
+\t\t\t\t// Always collect the full block (first line + indented continuations).
+\t\t\t\t// Handles both single-line and multi-line metadata values.
+\t\t\t\tconst metaIdx = fm.indexOf(metaLineMatch[0]);
+\t\t\t\tconst afterMeta = fm.slice(metaIdx + metaLineMatch[0].length);
+\t\t\t\tconst lines = afterMeta.split(\"\\n\");
+\t\t\t\tconst block = [];
+\t\t\t\tfor (const line of lines) {
+\t\t\t\t\tif (/^\\S/.test(line) && line.trim()) break;
+\t\t\t\t\tblock.push(line);
+\t\t\t\t}
+\t\t\t\traw = (firstLineVal + \"\\n\" + block.join(\"\\n\")).trim();
 \t\t\t\t// Strip surrounding quotes if the YAML wrapped it.
-\t\t\t\tif ((raw.startsWith(\"'\") && raw.endsWith(\"'\")) || (raw.startsWith('\"') && raw.endsWith('\"'))) {
+\t\t\t\tif ((raw.startsWith(\"'\") && raw.endsWith(\"'\")) || (raw.startsWith(\"\\\"\") && raw.endsWith(\"\\\"\"))) {
 \t\t\t\t\traw = raw.slice(1, -1);
 \t\t\t\t}
+\t\t\t\t// Strip trailing commas before } or ] (JSON5-ish YAML values)
+\t\t\t\traw = raw.replace(/,\\s*([}\\]])/g, \"$1\");
 \t\t\t\tlet parsed;
 \t\t\t\ttry { parsed = JSON.parse(raw); } catch { return []; }
 \t\t\t\tfor (const key of BIN_KEYS) walkBins(parsed?.[key], out);
@@ -217,16 +250,8 @@ REPLACEMENT_RESOLVER_AND_INIT = """\tconst __ocIsolationResolveAgentBins = (() =
 \t\tconst loadAccess = () => {
 \t\t\ttry { return JSON.parse(fs.readFileSync(ACCESS_FILE, \"utf8\")); } catch { return { skills: {}, agents: {} }; }
 \t\t};
-\t\treturn (agentId) => {
-\t\t\tconst bins = new Set();
-\t\t\tconst wsSkills = path.join(workspaceDirFor(agentId), \"skills\");
-\t\t\tfor (const d of listSkillDirs(wsSkills)) {
-\t\t\t\tconst md = path.join(d, \"SKILL.md\");
-\t\t\t\tif (fs.existsSync(md)) for (const b of parseSkillBins(md)) bins.add(b);
-\t\t\t}
-\t\t\tconst access = loadAccess();
-\t\t\tconst agentTags = new Set(access?.agents?.[agentId]?.tags ?? []);
-\t\t\tfor (const d of listSkillDirs(GLOBAL_SKILLS)) {
+\t\tconst scanSkillsDir = (skillsRoot, access, agentTags, bins) => {
+\t\t\tfor (const d of listSkillDirs(skillsRoot)) {
 \t\t\t\tconst folder = path.basename(d);
 \t\t\t\tconst md = path.join(d, \"SKILL.md\");
 \t\t\t\tif (!fs.existsSync(md)) continue;
@@ -239,6 +264,21 @@ REPLACEMENT_RESOLVER_AND_INIT = """\tconst __ocIsolationResolveAgentBins = (() =
 \t\t\t\t}
 \t\t\t\tif (allowed) for (const b of parseSkillBins(md)) bins.add(b);
 \t\t\t}
+\t\t};
+\t\treturn (agentId) => {
+\t\t\tconst bins = new Set();
+\t\t\t// 1. Agent workspace skills (always included for this agent)
+\t\t\tconst wsSkills = path.join(workspaceDirFor(agentId), \"skills\");
+\t\t\tfor (const d of listSkillDirs(wsSkills)) {
+\t\t\t\tconst md = path.join(d, \"SKILL.md\");
+\t\t\t\tif (fs.existsSync(md)) for (const b of parseSkillBins(md)) bins.add(b);
+\t\t\t}
+\t\t\tconst access = loadAccess();
+\t\t\tconst agentTags = new Set(access?.agents?.[agentId]?.tags ?? []);
+\t\t\t// 2. Global user skills (~/.openclaw/skills/) with tag filtering
+\t\t\tscanSkillsDir(GLOBAL_SKILLS, access, agentTags, bins);
+\t\t\t// 3. Bundled npm package skills with same tag filtering
+\t\t\tif (BUNDLED_SKILLS) scanSkillsDir(BUNDLED_SKILLS, access, agentTags, bins);
 \t\t\treturn [...bins];
 \t\t};
 \t})();
