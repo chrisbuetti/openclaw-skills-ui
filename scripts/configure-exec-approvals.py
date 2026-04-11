@@ -19,17 +19,23 @@ Usage:
     # Dry run — show what would change without writing:
     python3 scripts/configure-exec-approvals.py --sandbox gabe --dry-run
 
-    # Custom OCPlatform directory:
+    # Revert to most recent backup:
+    python3 scripts/configure-exec-approvals.py --revert
+
+    # Custom OpenClaw directory:
     python3 scripts/configure-exec-approvals.py --oc-dir /path/to/.openclaw
 """
 
+from __future__ import annotations
+
 import argparse
 import json
-import os
 import shutil
 import sys
+import tempfile
 from datetime import datetime
 from pathlib import Path
+from typing import List, Optional, Tuple
 
 
 def find_oc_dir() -> Path:
@@ -49,14 +55,27 @@ def load_json(path: Path) -> dict:
         return json.load(f)
 
 
-def save_json(path: Path, data: dict) -> None:
-    """Write data to a JSON file with consistent formatting."""
-    with open(path, "w") as f:
-        json.dump(data, f, indent=2)
-        f.write("\n")
+def save_json_atomic(path: Path, data: dict) -> None:
+    """Atomically write data to a JSON file.
+
+    Writes to a temp file in the same directory then os.replace()s over
+    the target — same pattern as patch-openclaw-isolation.py. Prevents
+    half-written files if the process is killed mid-write.
+    """
+    content = json.dumps(data, indent=2) + "\n"
+    fd, tmp_path = tempfile.mkstemp(
+        dir=path.parent, prefix=".exec-approvals-", suffix=".tmp"
+    )
+    try:
+        with open(fd, "w") as f:
+            f.write(content)
+        Path(tmp_path).replace(path)
+    except BaseException:
+        Path(tmp_path).unlink(missing_ok=True)
+        raise
 
 
-def get_agent_ids(config: dict) -> list[str]:
+def get_agent_ids(config: dict) -> List[str]:
     """Extract agent ids from openclaw.json.
 
     Handles both formats:
@@ -64,7 +83,7 @@ def get_agent_ids(config: dict) -> list[str]:
       - agents.<name>: {id: "...", ...}  (legacy/flat)
     """
     agents = config.get("agents", {})
-    ids = []
+    ids: List[str] = []
 
     # Format 1: agents.list array (standard)
     if "list" in agents and isinstance(agents["list"], list):
@@ -80,32 +99,38 @@ def get_agent_ids(config: dict) -> list[str]:
         if isinstance(val, dict) and "id" in val:
             ids.append(val["id"])
         elif isinstance(val, list):
-            # agents.list stored under a different key name
             for entry in val:
                 if isinstance(entry, dict) and "id" in entry:
                     ids.append(entry["id"])
-        elif key not in ("defaults",):
-            # Key itself is the agent id
+        else:
             ids.append(key)
 
     return ids
 
 
-def interactive_select(agent_ids: list[str]) -> tuple[list[str], str | None]:
+def interactive_select(agent_ids: List[str]) -> Tuple[List[str], Optional[str]]:
     """Interactively select agents to sandbox and optionally a main agent.
 
     Returns (sandbox_ids, main_id_or_none).
     """
+    if not sys.stdin.isatty():
+        print(
+            "Error: interactive mode requires a terminal (stdin is not a TTY).\n"
+            "Use --sandbox AGENT_ID or --sandbox-all --main AGENT_ID instead.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     print("\nDiscovered agents:")
     for i, aid in enumerate(agent_ids, 1):
         print(f"  {i}. {aid}")
     print()
 
     # Select main agent
-    print("Which agent is your PRIMARY (unsandboxed) agent?")
-    print("This agent keeps security: \"full\" (unrestricted exec).")
+    print('Which agent is your PRIMARY (unsandboxed) agent?')
+    print('This agent keeps security: "full" (unrestricted exec).')
     print("Enter the number, or press Enter to skip (no carve-out):")
-    main_id = None
+    main_id: Optional[str] = None
     while True:
         choice = input("> ").strip()
         if not choice:
@@ -119,12 +144,11 @@ def interactive_select(agent_ids: list[str]) -> tuple[list[str], str | None]:
             else:
                 print(f"  Invalid number. Enter 1-{len(agent_ids)} or press Enter.")
         except ValueError:
-            # Maybe they typed the name directly
             if choice in agent_ids:
                 main_id = choice
                 print(f"  → {main_id} will remain unsandboxed.\n")
                 break
-            print(f"  Invalid input. Enter a number or agent id.")
+            print("  Invalid input. Enter a number or agent id.")
 
     # Select agents to sandbox
     remaining = [a for a in agent_ids if a != main_id]
@@ -152,9 +176,8 @@ def interactive_select(agent_ids: list[str]) -> tuple[list[str], str | None]:
             print(f"  → Sandboxing all {len(remaining)} agents.")
             return remaining, main_id
 
-        # Try as comma-separated numbers
         parts = [p.strip() for p in choice.split(",")]
-        selected = []
+        selected: List[str] = []
         try:
             indices = [int(p) - 1 for p in parts]
             for idx in indices:
@@ -165,7 +188,6 @@ def interactive_select(agent_ids: list[str]) -> tuple[list[str], str | None]:
                     selected = []
                     break
         except ValueError:
-            # Try as comma-separated names
             for name in parts:
                 if name in remaining:
                     selected.append(name)
@@ -181,10 +203,42 @@ def interactive_select(agent_ids: list[str]) -> tuple[list[str], str | None]:
         print("  Try again. Enter 'a' for all, numbers, or agent ids.")
 
 
+def find_latest_backup(oc_dir: Path) -> Optional[Path]:
+    """Find the most recent .bak file for exec-approvals.json."""
+    pattern = "exec-approvals.pre-isolation-*.bak"
+    backups = sorted(oc_dir.glob(pattern), reverse=True)
+    return backups[0] if backups else None
+
+
+def revert(oc_dir: Path, dry_run: bool = False) -> None:
+    """Restore exec-approvals.json from the most recent backup."""
+    approvals_path = oc_dir / "exec-approvals.json"
+    backup = find_latest_backup(oc_dir)
+
+    if not backup:
+        print("No backup files found (exec-approvals.pre-isolation-*.bak).", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"Found backup: {backup.name}")
+    print(f"  Created: {backup.stat().st_mtime}")
+
+    if dry_run:
+        print("\n--- DRY RUN — would restore from backup ---")
+        data = load_json(backup)
+        print(json.dumps(data, indent=2))
+        print("--- end dry run ---")
+        return
+
+    shutil.copy2(backup, approvals_path)
+    print(f"Restored {approvals_path} from {backup.name}")
+    print("\n⚠️  Restart the OpenClaw gateway for changes to take effect:")
+    print("     openclaw gateway restart")
+
+
 def configure(
     oc_dir: Path,
-    sandbox_ids: list[str],
-    main_id: str | None = None,
+    sandbox_ids: List[str],
+    main_id: Optional[str] = None,
     sandbox_all: bool = False,
     dry_run: bool = False,
     ask_mode: str = "off",
@@ -201,25 +255,26 @@ def configure(
     """
     approvals_path = oc_dir / "exec-approvals.json"
 
-    # Load existing or create skeleton
+    # Load existing — refuse to create from scratch (socket config is required)
     if approvals_path.exists():
         approvals = load_json(approvals_path)
         print(f"Loaded existing {approvals_path}")
     else:
-        approvals = {
-            "version": 1,
-            "socket": {},
-            "defaults": {},
-            "agents": {},
-        }
-        print(f"No existing exec-approvals.json — creating new one.")
+        print(
+            f"Error: {approvals_path} not found.\n"
+            "This file is created by OCPlatform on first run and contains\n"
+            "required socket configuration. Start the gateway at least once\n"
+            "before running this script.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
     if "agents" not in approvals:
         approvals["agents"] = {}
     if "defaults" not in approvals:
         approvals["defaults"] = {}
 
-    changes = []
+    changes: List[str] = []
 
     # Option B: sandbox all by default
     if sandbox_all:
@@ -236,9 +291,9 @@ def configure(
             if agent_cfg.get("security") != "full":
                 agent_cfg["security"] = "full"
                 approvals["agents"][main_id] = agent_cfg
-                changes.append(f"Carved out {main_id} with security: \"full\"")
+                changes.append(f'Carved out {main_id} with security: "full"')
 
-    # Option A: sandbox specific agents
+    # Sandbox specific agents
     for agent_id in sandbox_ids:
         agent_cfg = approvals["agents"].get(agent_id, {})
         existing_allowlist = agent_cfg.get("allowlist", [])
@@ -246,13 +301,13 @@ def configure(
         needs_update = (
             agent_cfg.get("security") != "allowlist"
             or agent_cfg.get("autoAllowSkills") is not True
+            or agent_cfg.get("ask") != ask_mode
         )
 
         if needs_update:
             agent_cfg["security"] = "allowlist"
             agent_cfg["ask"] = ask_mode
             agent_cfg["autoAllowSkills"] = True
-            # Preserve existing allowlist entries
             if "allowlist" not in agent_cfg:
                 agent_cfg["allowlist"] = []
             approvals["agents"][agent_id] = agent_cfg
@@ -281,21 +336,20 @@ def configure(
         return
 
     # Backup
-    if approvals_path.exists():
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        backup_path = approvals_path.with_suffix(f".pre-isolation-{timestamp}.bak")
-        shutil.copy2(approvals_path, backup_path)
-        print(f"\nBacked up to {backup_path}")
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    backup_path = approvals_path.with_suffix(f".pre-isolation-{timestamp}.bak")
+    shutil.copy2(approvals_path, backup_path)
+    print(f"\nBacked up to {backup_path}")
 
-    # Write
-    save_json(approvals_path, approvals)
+    # Atomic write
+    save_json_atomic(approvals_path, approvals)
     print(f"Wrote {approvals_path}")
 
     print("\n⚠️  Restart the OpenClaw gateway for changes to take effect:")
     print("     openclaw gateway restart")
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser(
         description="Configure exec-approvals.json for per-agent skill bin isolation.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -321,13 +375,18 @@ def main():
     parser.add_argument(
         "--main",
         metavar="AGENT_ID",
-        help="Primary agent id to keep at security: \"full\" (used with --sandbox-all)",
+        help='Primary agent id to keep at security: "full" (used with --sandbox-all)',
     )
     parser.add_argument(
         "--ask",
         choices=["off", "on-miss"],
         default="off",
         help="Ask mode for sandboxed agents: 'off' = hard deny, 'on-miss' = prompt (default: off)",
+    )
+    parser.add_argument(
+        "--revert",
+        action="store_true",
+        help="Restore exec-approvals.json from the most recent backup",
     )
     parser.add_argument(
         "--dry-run",
@@ -346,6 +405,23 @@ def main():
     else:
         oc_dir = find_oc_dir()
 
+    # Revert mode
+    if args.revert:
+        if args.sandbox or args.sandbox_all:
+            print("Error: --revert cannot be combined with --sandbox or --sandbox-all.", file=sys.stderr)
+            sys.exit(1)
+        revert(oc_dir, dry_run=args.dry_run)
+        return
+
+    # Disallow combining --sandbox and --sandbox-all (ambiguous intent)
+    if args.sandbox and args.sandbox_all:
+        print(
+            "Error: --sandbox and --sandbox-all are mutually exclusive.\n"
+            "Use --sandbox to sandbox specific agents, or --sandbox-all --main AGENT to sandbox everyone.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     # Load openclaw.json to discover agents
     config_path = oc_dir / "openclaw.json"
     if not config_path.exists():
@@ -363,20 +439,21 @@ def main():
 
     # Determine what to do
     if args.sandbox:
-        # Validate requested agent ids
         unknown = [a for a in args.sandbox if a not in agent_ids]
         if unknown:
             print(f"Warning: unknown agent id(s): {', '.join(unknown)}")
             print(f"Known agents: {', '.join(agent_ids)}")
-            confirm = input("Continue anyway? [y/N] ").strip().lower()
-            if confirm != "y":
-                sys.exit(0)
+            if sys.stdin.isatty():
+                confirm = input("Continue anyway? [y/N] ").strip().lower()
+                if confirm != "y":
+                    sys.exit(0)
+            else:
+                print("Non-interactive mode — aborting on unknown agents.", file=sys.stderr)
+                sys.exit(1)
 
         configure(
             oc_dir,
             sandbox_ids=args.sandbox,
-            main_id=args.main,
-            sandbox_all=args.sandbox_all,
             dry_run=args.dry_run,
             ask_mode=args.ask,
         )
@@ -388,7 +465,6 @@ def main():
         if args.main not in agent_ids:
             print(f"Warning: main agent '{args.main}' not found in openclaw.json agents.")
 
-        # Sandbox all except main
         sandbox_ids = [a for a in agent_ids if a != args.main]
         configure(
             oc_dir,
