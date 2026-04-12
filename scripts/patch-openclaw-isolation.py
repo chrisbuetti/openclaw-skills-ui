@@ -411,7 +411,7 @@ def cmd_verify(bundle: Path) -> int:
         log(f"   sentinel: {SENTINEL}")
         return 0
     log(f"⚠️  bundle is NOT patched: {bundle}")
-    return 0
+    return 1
 
 
 def cmd_apply(bundle: Path) -> int:
