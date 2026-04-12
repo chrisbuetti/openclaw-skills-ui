@@ -319,7 +319,11 @@ main() {
 
     detect_environment
     apply_patch
-    configure_approvals "${config_args[@]}"
+    if [[ ${#config_args[@]} -gt 0 ]]; then
+        configure_approvals "${config_args[@]}"
+    else
+        configure_approvals
+    fi
     install_watchdog
     restart_gateway
 
