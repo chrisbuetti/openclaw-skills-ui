@@ -927,6 +927,119 @@ async def create_skill(body: SkillCreate):
     return {"ok": True, "id": f"{body.workspace}/{body.folder}"}
 
 
+@app.post("/api/skills/upload")
+async def upload_skill(request: Request):
+    """Upload skills from zip files or raw folder contents.
+    
+    Accepts multipart form data with:
+    - workspace: target workspace (default: __global__)
+    - files: one or more .zip files OR raw files with webkitRelativePath paths
+    """
+    import tempfile
+    import zipfile
+
+    form = await request.form()
+    workspace = form.get("workspace", "__global__")
+    
+    # Collect all uploaded files
+    uploaded_files = []
+    for key in form:
+        if key == 'workspace':
+            continue
+        items = form.getlist(key)
+        for item in items:
+            if hasattr(item, 'filename') and item.filename:
+                uploaded_files.append(item)
+
+    if not uploaded_files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    created = []
+    errors = []
+
+    with tempfile.TemporaryDirectory() as tmp:
+        # Check if these are zip files or raw folder contents
+        zip_files = [f for f in uploaded_files if f.filename.endswith(".zip")]
+        raw_files = [f for f in uploaded_files if not f.filename.endswith(".zip")]
+
+        # Process zip files
+        for zf_upload in zip_files:
+            zip_tmp = os.path.join(tmp, f"zip_{zf_upload.filename}")
+            os.makedirs(zip_tmp, exist_ok=True)
+            content = await zf_upload.read()
+            zip_path = os.path.join(zip_tmp, "upload.zip")
+            with open(zip_path, "wb") as f:
+                f.write(content)
+            try:
+                with zipfile.ZipFile(zip_path, "r") as zf:
+                    zf.extractall(zip_tmp)
+            except zipfile.BadZipFile:
+                errors.append(f"{zf_upload.filename}: invalid zip")
+                continue
+
+            # Find skill folders
+            for root, dirs, files in os.walk(zip_tmp):
+                dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
+                if "SKILL.md" in files:
+                    folder_name = os.path.basename(root)
+                    if not folder_name or folder_name == os.path.basename(zip_tmp):
+                        folder_name = os.path.splitext(zf_upload.filename)[0]
+                    result = _install_skill_folder(root, folder_name, workspace)
+                    if result["ok"]:
+                        created.append(result["name"])
+                    else:
+                        errors.append(result["error"])
+
+        # Process raw folder uploads (from webkitdirectory)
+        if raw_files:
+            raw_tmp = os.path.join(tmp, "raw")
+            os.makedirs(raw_tmp, exist_ok=True)
+            for rf in raw_files:
+                # filename contains the relative path like "my-skill/SKILL.md"
+                rel_path = rf.filename
+                dest_path = os.path.join(raw_tmp, rel_path)
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                content = await rf.read()
+                with open(dest_path, "wb") as f:
+                    f.write(content)
+
+            # Find skill folders in the reconstructed tree
+            for root, dirs, files in os.walk(raw_tmp):
+                dirs[:] = [d for d in dirs if not d.startswith("__") and not d.startswith(".")]
+                if "SKILL.md" in files:
+                    folder_name = os.path.basename(root)
+                    if not folder_name or folder_name == "raw":
+                        folder_name = "uploaded-skill"
+                    result = _install_skill_folder(root, folder_name, workspace)
+                    if result["ok"]:
+                        created.append(result["name"])
+                    else:
+                        errors.append(result["error"])
+
+    if not created and errors:
+        raise HTTPException(status_code=400, detail="; ".join(errors))
+
+    if created:
+        restart_gateway()
+
+    return {"ok": True, "created": created, "count": len(created), "errors": errors}
+
+
+def _install_skill_folder(src_path: str, folder_name: str, workspace: str) -> dict:
+    """Copy a skill folder to the target location. Returns {ok, name} or {ok, error}."""
+    if workspace == "__global__":
+        dest = os.path.join(GLOBAL_SKILLS_DIR, folder_name)
+    else:
+        dest = resolve_skill_dir(workspace, folder_name)
+
+    if os.path.exists(dest):
+        return {"ok": False, "error": f"Skill '{folder_name}' already exists at target"}
+
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    shutil.copytree(src_path, dest)
+    return {"ok": True, "name": folder_name}
+
+
 @app.delete("/api/skills/{workspace}/{folder}")
 async def delete_skill(workspace: str, folder: str):
     if workspace == "__global__":

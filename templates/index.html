@@ -123,7 +123,10 @@
       <!-- Skills sidebar -->
       <aside class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
         <div class="p-3 space-y-2">
-          <button onclick="showSkillCreate()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Skill</button>
+          <div class="flex gap-2">
+            <button onclick="showSkillCreate()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Skill</button>
+            <button onclick="showSkillUpload()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium rounded-lg transition" title="Upload skill folder (.zip)">📤</button>
+          </div>
           <input id="skill-filter" type="text" placeholder="Filter skills..." oninput="renderSkillSidebar()"
             class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
           <div class="flex gap-1 flex-wrap">
@@ -1050,6 +1053,178 @@ function showSkillCreate() {
           style="min-height: 300px"></textarea>
       </div>
     </div>`;
+}
+
+function showSkillUpload() {
+  state.selectedSkill = null;
+  renderSkillSidebar();
+  document.getElementById('skill-empty').classList.add('hidden');
+  document.getElementById('skill-detail').classList.add('hidden');
+  const panel = document.getElementById('skill-create');
+  panel.classList.remove('hidden');
+  pendingSkillFiles = [];
+
+  const agentOpts = state.agents.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  panel.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <h2 class="text-xl font-semibold">Upload Skills</h2>
+      <div class="flex gap-2">
+        <button onclick="hideSkillCreate()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
+        <button onclick="uploadSkills()" id="upload-skill-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Upload</button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Target</label>
+        <select id="supload-ws" class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+          <option value="__global__">\ud83c\udf0d Global (all agents)</option>
+          ${agentOpts}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Skill Folders</label>
+        <div id="upload-drop-zone" 
+          class="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center hover:border-blue-500/50 transition cursor-pointer"
+          ondragover="event.preventDefault(); this.classList.add('border-blue-500', 'bg-blue-500/5')"
+          ondragleave="this.classList.remove('border-blue-500', 'bg-blue-500/5')"
+          ondrop="event.preventDefault(); this.classList.remove('border-blue-500', 'bg-blue-500/5'); handleSkillDrop(event)">
+          <div class="text-4xl mb-3">\ud83d\udcc1</div>
+          <div class="text-sm text-gray-400">Drop .zip files here, or use the buttons below</div>
+          <div class="text-xs text-gray-600 mt-1">Each folder must contain a SKILL.md file</div>
+          <div id="upload-file-list" class="text-sm text-left mt-4 space-y-1"></div>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="document.getElementById('skill-zip-input').click()" class="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition border border-gray-700">\ud83d\udce6 Select .zip files</button>
+          <button onclick="document.getElementById('skill-folder-input').click()" class="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition border border-gray-700">\ud83d\udcc2 Select folders</button>
+        </div>
+        <input type="file" id="skill-zip-input" accept=".zip" multiple class="hidden" onchange="handleZipSelect(this)" />
+        <input type="file" id="skill-folder-input" webkitdirectory multiple class="hidden" onchange="handleFolderSelect(this)" />
+      </div>
+    </div>`;
+}
+
+let pendingSkillFiles = [];
+
+function handleZipSelect(input) {
+  if (!input?.files?.length) return;
+  for (const file of input.files) {
+    if (!file.name.endsWith('.zip')) { toast(`Skipped ${file.name} — not a .zip`, 'red'); continue; }
+    pendingSkillFiles.push({ type: 'zip', file, name: file.name });
+  }
+  input.value = '';
+  renderUploadFileList();
+}
+
+function handleFolderSelect(input) {
+  if (!input?.files?.length) return;
+  // Group files by their top-level folder
+  const folders = {};
+  for (const file of input.files) {
+    const rel = file.webkitRelativePath || file.name;
+    const topFolder = rel.split('/')[0];
+    if (!folders[topFolder]) folders[topFolder] = [];
+    folders[topFolder].push(file);
+  }
+  for (const [folderName, files] of Object.entries(folders)) {
+    // Check if this folder has a SKILL.md
+    const hasSkillMd = files.some(f => {
+      const rel = f.webkitRelativePath || f.name;
+      const parts = rel.split('/');
+      // SKILL.md should be at depth 1 (folderName/SKILL.md)
+      return parts.length === 2 && parts[1] === 'SKILL.md';
+    });
+    if (!hasSkillMd) {
+      // Check deeper
+      const hasDeep = files.some(f => (f.webkitRelativePath || f.name).includes('SKILL.md'));
+      if (!hasDeep) { toast(`Skipped ${folderName} — no SKILL.md found`, 'red'); continue; }
+    }
+    pendingSkillFiles.push({ type: 'folder', files, name: folderName });
+  }
+  input.value = '';
+  renderUploadFileList();
+}
+
+function handleSkillDrop(event) {
+  const files = event.dataTransfer?.files;
+  if (!files?.length) return;
+  for (const file of files) {
+    if (file.name.endsWith('.zip')) {
+      pendingSkillFiles.push({ type: 'zip', file, name: file.name });
+    } else {
+      toast(`Skipped ${file.name} — drop .zip files or use the folder button`, 'red');
+    }
+  }
+  renderUploadFileList();
+}
+
+function removeUploadItem(idx) {
+  pendingSkillFiles.splice(idx, 1);
+  renderUploadFileList();
+}
+
+function renderUploadFileList() {
+  const el = document.getElementById('upload-file-list');
+  const btn = document.getElementById('upload-skill-btn');
+  if (!el) return;
+  if (!pendingSkillFiles.length) {
+    el.innerHTML = '';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (btn) btn.disabled = false;
+  el.innerHTML = pendingSkillFiles.map((item, i) => {
+    const icon = item.type === 'zip' ? '\ud83d\udce6' : '\ud83d\udcc2';
+    const size = item.type === 'zip' ? `(${(item.file.size / 1024).toFixed(1)} KB)` : `(${item.files.length} files)`;
+    return `<div class="flex items-center justify-between bg-gray-800/50 rounded px-3 py-1.5">
+      <span class="text-blue-400">${icon} ${esc(item.name)} <span class="text-gray-500 text-xs">${size}</span></span>
+      <button onclick="removeUploadItem(${i})" class="text-gray-500 hover:text-red-400 text-xs ml-2">\u2715</button>
+    </div>`;
+  }).join('');
+}
+
+async function uploadSkills() {
+  if (!pendingSkillFiles.length) { toast('No files selected', 'red'); return; }
+  const workspace = document.getElementById('supload-ws').value;
+  const formData = new FormData();
+  formData.append('workspace', workspace);
+
+  for (const item of pendingSkillFiles) {
+    if (item.type === 'zip') {
+      formData.append('files', item.file, item.file.name);
+    } else {
+      // Folder — append each file with its relative path
+      for (const file of item.files) {
+        const rel = file.webkitRelativePath || file.name;
+        formData.append('files', file, rel);
+      }
+    }
+  }
+
+  showLoading('Uploading skills...');
+  try {
+    const res = await fetch('/api/skills/upload', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const data = await res.json();
+    const msg = data.errors?.length
+      ? `Uploaded ${data.count}: ${data.created.join(', ')} (${data.errors.length} error(s))`
+      : `Uploaded ${data.count} skill(s): ${data.created.join(', ')}`;
+    toast(msg, data.errors?.length ? 'blue' : 'green');
+    pendingSkillFiles = [];
+    hideSkillCreate();
+    await loadSkills();
+    renderSkillSidebar();
+    if (data.created.length) {
+      const newId = workspace === '__global__' ? `global/${data.created[0]}` : `${workspace}/${data.created[0]}`;
+      selectSkill(newId);
+    }
+  } catch (e) {
+    toast(e.message, 'red');
+  } finally {
+    hideLoading();
+  }
 }
 
 function showSkillCreateForAgent(agent) {
