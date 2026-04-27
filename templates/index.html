@@ -528,8 +528,9 @@ function renderDashboard() {
       <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
         class="bg-gray-900 rounded-xl border ${borderClass} p-5 hover:border-gray-600 cursor-pointer transition group">
         <div class="flex items-start justify-between mb-3">
-          <div class="flex items-center gap-2">
-            <span class="text-2xl">${emoji}</span>
+          <div class="flex items-center gap-3">
+            <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-10 h-10 rounded-full object-cover border-2 border-gray-700 group-hover:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <span class="text-2xl hidden items-center justify-center">${emoji}</span>
             <div>
               <div class="font-semibold">${esc(a.display_name)}</div>
               <div class="text-xs text-gray-500">${esc(a.theme || a.name)}</div>
@@ -613,7 +614,7 @@ function renderAgentSidebar() {
       <button onclick="selectAgent('${esc(a.name)}')"
         class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
         <div class="flex items-center gap-2">
-          <span>${emoji}</span>
+          <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-7 h-7 rounded-full object-cover border border-gray-700 shrink-0" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'" /><span class="hidden text-base">${emoji}</span>
           <span class="font-medium truncate">${esc(a.display_name)}</span>
           ${clsBadge}
           ${statusBadge}
@@ -708,7 +709,12 @@ async function selectAgent(name) {
       <!-- Header -->
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-4">
-          <span class="text-5xl">${emoji}</span>
+          <div class="relative group/photo cursor-pointer" onclick="document.getElementById('agent-photo-upload').click()">
+            <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-16 h-16 rounded-full object-cover border-2 border-gray-700 group-hover/photo:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <span class="text-5xl hidden items-center justify-center">${emoji}</span>
+            <div class="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover/photo:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">📷</div>
+          </div>
+          <input type="file" id="agent-photo-upload" accept="image/*" class="hidden" onchange="uploadAgentPhoto('${esc(a.name)}', this)" />
           <div>
             <h2 class="text-2xl font-bold">${esc(a.display_name)}</h2>
             <div class="text-sm text-gray-500 mt-1">${esc(creature)}</div>
@@ -1116,6 +1122,22 @@ function showCopyMoveModal(sourceAgent, folder) {
 
 function closeModal() {
   document.getElementById('modal-overlay').classList.add('hidden');
+}
+
+async function uploadAgentPhoto(agentName, input) {
+  const file = input?.files?.[0];
+  if (!file) return;
+  const formData = new FormData();
+  formData.append('file', file);
+  try {
+    const r = await fetch(`/api/agents/${agentName}/photo`, { method: 'POST', body: formData });
+    if (!r.ok) throw new Error('Upload failed');
+    toast('Photo updated', 'green');
+    selectAgent(agentName);
+    renderAgentSidebar();
+  } catch (e) {
+    toast('Failed to upload photo: ' + e.message, 'red');
+  }
 }
 
 async function promoteSkillToGlobal(agent, folder) {

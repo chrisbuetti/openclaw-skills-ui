@@ -4,8 +4,8 @@ import glob
 import subprocess
 import logging
 from pathlib import Path
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -79,6 +79,7 @@ def detect_npm_skills_dir() -> str:
 
 
 app = FastAPI(title="OpenClaw Manager")
+app.mount("/static", StaticFiles(directory=os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")), name="static")
 templates = Jinja2Templates(directory="templates")
 
 # --- Configurable paths ---
@@ -95,10 +96,16 @@ AGENT_CLS_PATH = os.path.join(OCPLATFORM_DIR, "agent-classifications.json")
 SKILL_ACCESS_PATH = os.path.join(OCPLATFORM_DIR, "skill-access.json")
 SYNC_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "sync-skill-access.sh")
 UI_SETTINGS_PATH = os.path.join(OCPLATFORM_DIR, "openclaw-skills-ui.json")
+AGENT_PHOTOS_DIR = os.path.join(OCPLATFORM_DIR, "agent-photos")
+DEFAULT_PHOTO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "default-agent.png")
 
 
 logging.basicConfig(level=logging.INFO, format="[%(asctime)s] %(levelname)s %(message)s")
 logger = logging.getLogger("openclaw-skills-ui")
+
+# Ensure agent photos directory exists
+os.makedirs(AGENT_PHOTOS_DIR, exist_ok=True)
+os.makedirs(os.path.join(os.path.dirname(os.path.abspath(__file__)), "static"), exist_ok=True)
 
 
 # ──────────────────────────────────────────────────────────────
@@ -1190,6 +1197,67 @@ async def delete_classification(name: str):
 @app.get("/api/matrix")
 async def skill_matrix():
     return build_skill_matrix()
+
+
+# --- Agent Photos ---
+
+def _agent_photo_path(agent_id: str) -> Optional[str]:
+    """Return path to agent's custom photo, or None if not set."""
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        p = os.path.join(AGENT_PHOTOS_DIR, f"{agent_id}.{ext}")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _photo_media_type(path: str) -> str:
+    ext = os.path.splitext(path)[1].lower()
+    return {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp",
+    }.get(ext, "application/octet-stream")
+
+
+@app.get("/api/agents/{name}/photo")
+async def agent_photo(name: str):
+    path = _agent_photo_path(name)
+    if path:
+        return FileResponse(path, media_type=_photo_media_type(path))
+    # Serve default
+    if os.path.isfile(DEFAULT_PHOTO_PATH):
+        return FileResponse(DEFAULT_PHOTO_PATH, media_type="image/png")
+    raise HTTPException(status_code=404, detail="No photo found")
+
+
+@app.post("/api/agents/{name}/photo")
+async def upload_agent_photo(name: str, file: UploadFile = File(...)):
+    # Remove old photo if exists
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        old = os.path.join(AGENT_PHOTOS_DIR, f"{name}.{ext}")
+        if os.path.isfile(old):
+            os.remove(old)
+
+    suffix = os.path.splitext(file.filename or "photo.png")[1].lower()
+    if suffix not in (".png", ".jpg", ".jpeg", ".gif", ".webp"):
+        suffix = ".png"
+
+    dest = os.path.join(AGENT_PHOTOS_DIR, f"{name}{suffix}")
+    with open(dest, "wb") as f:
+        content = await file.read()
+        f.write(content)
+
+    return {"ok": True, "photo_url": f"/api/agents/{name}/photo"}
+
+
+@app.delete("/api/agents/{name}/photo")
+async def delete_agent_photo(name: str):
+    removed = False
+    for ext in ("png", "jpg", "jpeg", "gif", "webp"):
+        p = os.path.join(AGENT_PHOTOS_DIR, f"{name}.{ext}")
+        if os.path.isfile(p):
+            os.remove(p)
+            removed = True
+    return {"ok": True, "removed": removed}
 
 
 if __name__ == "__main__":
