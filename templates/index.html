@@ -27,6 +27,82 @@
     .tag-color-5 { background: rgba(45, 212, 191, 0.15); color: #5eead4; }
     .tag-color-6 { background: rgba(250, 204, 21, 0.15); color: #fde047; }
     .tag-color-7 { background: rgba(248, 113, 113, 0.15); color: #fca5a5; }
+
+    /* ═══ Mobile Responsive Styles ═══ */
+
+    /* Hamburger button */
+    .mobile-menu-btn { display: none; background: none; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #9ca3af; padding: 6px 8px; cursor: pointer; }
+    .mobile-menu-btn:hover { color: #e5e7eb; background: rgba(255,255,255,0.05); }
+    .mobile-menu-btn svg { display: block; }
+
+    /* Mobile back button for split-pane detail views */
+    .mobile-back-btn { display: none; background: none; border: none; color: #60a5fa; cursor: pointer; padding: 8px 12px; font-size: 14px; font-weight: 500; align-items: center; gap: 4px; }
+    .mobile-back-btn:hover { color: #93c5fd; }
+
+    @media (max-width: 768px) {
+      /* Nav: hamburger + collapse */
+      .mobile-menu-btn { display: inline-flex; }
+      nav .flex.ml-8.gap-1 {
+        display: none;
+        position: fixed; top: 56px; left: 0; right: 0;
+        background: #111827; border-bottom: 1px solid #1f2937;
+        flex-direction: column; padding: 8px; gap: 2px; z-index: 49;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      }
+      nav .flex.ml-8.gap-1.mobile-nav-open { display: flex; }
+      nav .flex.ml-8.gap-1 .nav-btn { text-align: left; width: 100%; }
+
+      /* Hide desktop-only controls on mobile */
+      .desktop-only { display: none !important; }
+
+      /* Mobile status bar - show agent count + restart only */
+      .mobile-controls { display: flex !important; }
+
+      /* Stats cards: 2 cols on mobile */
+      #stats-cards { grid-template-columns: repeat(2, 1fr) !important; }
+
+      /* Reduce padding */
+      .max-w-7xl, .max-w-6xl { padding-left: 16px !important; padding-right: 16px !important; }
+
+      /* Split-pane pages: sidebar takes full width, detail is hidden until selected */
+      #page-agents, #page-skills, #page-groups, #page-rules {
+        flex-direction: column;
+      }
+      #page-agents > aside, #page-skills > aside, #page-groups > aside, #page-rules > aside {
+        width: 100% !important; min-width: 0 !important;
+        border-right: none !important; border-bottom: 1px solid #1f2937;
+        max-height: none; height: 100%;
+      }
+      /* When detail is shown on mobile, hide sidebar */
+      .mobile-detail-active > aside { display: none !important; }
+      .mobile-detail-active > .flex-1 { display: flex !important; }
+      .mobile-detail-active .mobile-back-btn { display: inline-flex; }
+
+      /* When no detail selected on mobile, hide the detail panel */
+      #page-agents:not(.mobile-detail-active) > .flex-1,
+      #page-skills:not(.mobile-detail-active) > .flex-1,
+      #page-groups:not(.mobile-detail-active) > .flex-1,
+      #page-rules:not(.mobile-detail-active) > .flex-1 { display: none !important; }
+
+      /* Access page: stack columns */
+      #page-access .grid-cols-2 { grid-template-columns: 1fr !important; }
+      #page-access .flex.items-center.justify-between.mb-8 { flex-direction: column; align-items: stretch; gap: 12px; }
+      #page-access .flex.items-center.justify-between.mb-8 .flex.gap-3 { justify-content: flex-end; }
+
+      /* Modal sizing */
+      #modal-content { width: calc(100vw - 32px) !important; max-width: 400px; }
+
+      /* Toast positioning */
+      #toast { right: 16px; left: 16px; bottom: 16px; }
+    }
+
+    @media (max-width: 480px) {
+      #stats-cards { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+      #stats-cards > div { padding: 12px !important; }
+      #stats-cards .text-3xl { font-size: 1.5rem !important; }
+      nav { padding-left: 12px !important; padding-right: 12px !important; }
+      .brand-title { font-size: 15px !important; }
+    }
   </style>
   <script>
     tailwind.config = {
@@ -40,11 +116,14 @@
 
   <!-- Top Nav -->
   <nav class="h-14 bg-gray-900 border-b border-gray-800 flex items-center px-6 shrink-0 fixed top-0 left-0 right-0 z-50">
+    <button class="mobile-menu-btn" onclick="toggleMobileNav()" aria-label="Menu">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg>
+    </button>
     <div class="flex items-center gap-3">
       <span class="text-blue-400 text-xl">◆</span>
-      <span class="text-lg font-semibold tracking-tight">OpenClaw Manager</span>
+      <span class="text-lg font-semibold tracking-tight brand-title">OpenClaw Manager</span>
     </div>
-    <div class="flex ml-8 gap-1">
+    <div class="flex ml-8 gap-1" id="mobile-nav">
       <button onclick="navigate('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Dashboard</button>
       <button onclick="navigate('agents')" id="nav-agents" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Agents</button>
       <button onclick="navigate('skills')" id="nav-skills" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Skills</button>
@@ -53,11 +132,11 @@
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
     <div class="ml-auto flex items-center gap-4">
-      <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer">
+      <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer desktop-only">
         <input id="verbose-default-toggle" type="checkbox" onchange="toggleVerboseDefault(this.checked)" class="rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500/40" />
         <span>Verbose default</span>
       </label>
-      <label class="flex items-center gap-2 text-xs text-gray-400">
+      <label class="flex items-center gap-2 text-xs text-gray-400 desktop-only">
         <span>Logging level</span>
         <select id="logging-level-select" onchange="changeLoggingLevel(this.value)" class="px-2 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
           <option value="silent">silent</option>
@@ -365,10 +444,36 @@ async function loadSkills() {
 // ═══════════════════════════════════════════════════════════
 // Navigation
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// Mobile helpers
+// ═══════════════════════════════════════════════════════════
+function toggleMobileNav() {
+  document.getElementById('mobile-nav').classList.toggle('mobile-nav-open');
+}
+function closeMobileNav() {
+  document.getElementById('mobile-nav').classList.remove('mobile-nav-open');
+}
+function isMobile() { return window.innerWidth <= 768; }
+
+// Show detail view on mobile (hides sidebar)
+function mobileShowDetail(pageId) {
+  if (isMobile()) {
+    document.getElementById(pageId).classList.add('mobile-detail-active');
+  }
+}
+// Back to sidebar list on mobile
+function mobileBackToList(pageId) {
+  document.getElementById(pageId).classList.remove('mobile-detail-active');
+}
+
 async function navigate(page) {
   vlog('Navigating', { page });
+  closeMobileNav();
   state.currentPage = page;
-  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.add('hidden');
+    p.classList.remove('mobile-detail-active');
+  });
   document.getElementById(`page-${page}`).classList.remove('hidden');
 
   document.querySelectorAll('.nav-btn').forEach(b => {
@@ -639,6 +744,7 @@ async function selectAgent(name) {
   document.getElementById('agent-empty').classList.add('hidden');
   const detail = document.getElementById('agent-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-agents');
 
   const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
   const vibe = a.identity?.vibe || '';
@@ -708,6 +814,7 @@ async function selectAgent(name) {
     : '';
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-agents')">← Agents</button>
     <div class="p-8 space-y-6">
       <!-- Header -->
       <div class="flex items-start justify-between">
@@ -889,6 +996,7 @@ function selectSkill(id) {
   document.getElementById('skill-create').classList.add('hidden');
   const detail = document.getElementById('skill-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-skills');
 
   const tierColor = s.tier === 'platform' ? 'blue' : s.tier === 'global' ? 'amber' : 'green';
   const isEditable = s.tier !== 'platform';
@@ -918,6 +1026,7 @@ function selectSkill(id) {
   const accessDropdown = tagsSection;
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-skills')">← Skills</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <div>
         <div class="flex items-center gap-3">
@@ -1011,9 +1120,11 @@ function showSkillCreate() {
   document.getElementById('skill-detail').classList.add('hidden');
   const panel = document.getElementById('skill-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-skills');
 
   const agentOpts = state.agents.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-skills')">← Skills</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <h2 class="text-xl font-semibold">Create New Skill</h2>
       <div class="flex gap-2">
@@ -1415,7 +1526,9 @@ function showCreateRule() {
   hideAllRulePanels();
   const panel = document.getElementById('rules-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-rules');
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-rules')">← Rules</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 shrink-0">
       <h2 class="text-xl font-semibold">Create New Rule</h2>
       <p class="text-sm text-gray-500 mt-0.5">Classification rules define behavior boundaries for groups of agents</p>
@@ -1470,6 +1583,7 @@ function selectRule(name) {
   hideAllRulePanels();
   const detail = document.getElementById('rules-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-rules');
 
   const agentsInCls = state.agents.filter(a => a.classification === name);
   const otherAgents = state.agents.filter(a => a.classification !== name);
@@ -1477,6 +1591,7 @@ function selectRule(name) {
   const color = ruleColor(name, idx >= 0 ? idx : 0);
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-rules')">← Rules</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <div>
         <div class="flex items-center gap-3">
@@ -1633,6 +1748,7 @@ function selectGroup(name) {
   document.getElementById('groups-create').classList.add('hidden');
   const detail = document.getElementById('groups-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-groups');
 
   const tag = sa.tags[name];
   const tagSkills = Object.entries(sa.skills || {}).filter(([_, s]) => (s.tags || []).includes(name));
@@ -1681,6 +1797,7 @@ function selectGroup(name) {
     : '<p class="text-sm text-gray-500 py-2">No agents in this group</p>';
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-groups')">← Groups</button>
     <div class="p-8 space-y-6">
       <!-- Header -->
       <div class="flex items-start justify-between">
@@ -1754,8 +1871,10 @@ function showCreateGroup() {
   document.getElementById('groups-detail').classList.add('hidden');
   const panel = document.getElementById('groups-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-groups');
 
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-groups')">← Groups</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <h2 class="text-xl font-semibold">Create New Group</h2>
       <div class="flex gap-2">
