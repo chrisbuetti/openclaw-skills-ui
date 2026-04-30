@@ -97,6 +97,7 @@ SKILL_ACCESS_PATH = os.path.join(OCPLATFORM_DIR, "skill-access.json")
 SYNC_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "scripts", "sync-skill-access.sh")
 UI_SETTINGS_PATH = os.path.join(OCPLATFORM_DIR, "openclaw-skills-ui.json")
 AGENT_PHOTOS_DIR = os.path.join(OCPLATFORM_DIR, "agent-photos")
+AGENT_METADATA_PATH = os.path.join(OCPLATFORM_DIR, "agent-metadata.json")
 DEFAULT_PHOTO_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "default-agent.png")
 
 
@@ -141,6 +142,17 @@ def load_config() -> dict:
     if os.path.exists(CONFIG_PATH):
         with open(CONFIG_PATH) as f:
             return json.load(f)
+    return {}
+
+
+def load_agent_metadata() -> dict:
+    """Load agent metadata (organization, apps) from agent-metadata.json."""
+    if os.path.exists(AGENT_METADATA_PATH):
+        try:
+            with open(AGENT_METADATA_PATH) as f:
+                return json.load(f).get("agents", {})
+        except Exception:
+            pass
     return {}
 
 
@@ -339,6 +351,7 @@ def scan_agents() -> list[dict]:
     access_data = load_skill_access()
     skill_tags_map = access_data.get("skills", {})
     agent_tags_map = access_data.get("agents", {})
+    agent_metadata = load_agent_metadata()
 
     # Pre-scan global skills for tag-based access resolution
     global_skills_list = []
@@ -453,6 +466,9 @@ def scan_agents() -> list[dict]:
                 if not s.get("tags")
             ]
 
+        # Enrich with metadata (organization + apps)
+        meta = agent_metadata.get(name, {})
+
         agents.append({
             "name": name,
             "display_name": display_name,
@@ -474,6 +490,8 @@ def scan_agents() -> list[dict]:
             "soul": files.get("SOUL.md", ""),
             "identity_md": files.get("IDENTITY.md", ""),
             "orphan": False,
+            "organization": meta.get("organization", ""),
+            "apps": meta.get("apps", []),
         })
 
     # Detect orphan workspace dirs (exist on disk but not in config)
