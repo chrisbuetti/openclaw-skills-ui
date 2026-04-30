@@ -27,6 +27,82 @@
     .tag-color-5 { background: rgba(45, 212, 191, 0.15); color: #5eead4; }
     .tag-color-6 { background: rgba(250, 204, 21, 0.15); color: #fde047; }
     .tag-color-7 { background: rgba(248, 113, 113, 0.15); color: #fca5a5; }
+
+    /* ═══ Mobile Responsive Styles ═══ */
+
+    /* Hamburger button */
+    .mobile-menu-btn { display: none; background: none; border: 1px solid rgba(255,255,255,0.15); border-radius: 8px; color: #9ca3af; padding: 6px 8px; cursor: pointer; }
+    .mobile-menu-btn:hover { color: #e5e7eb; background: rgba(255,255,255,0.05); }
+    .mobile-menu-btn svg { display: block; }
+
+    /* Mobile back button for split-pane detail views */
+    .mobile-back-btn { display: none; background: none; border: none; color: #60a5fa; cursor: pointer; padding: 8px 12px; font-size: 14px; font-weight: 500; align-items: center; gap: 4px; }
+    .mobile-back-btn:hover { color: #93c5fd; }
+
+    @media (max-width: 768px) {
+      /* Nav: hamburger + collapse */
+      .mobile-menu-btn { display: inline-flex; }
+      nav .flex.ml-8.gap-1 {
+        display: none;
+        position: fixed; top: 56px; left: 0; right: 0;
+        background: #111827; border-bottom: 1px solid #1f2937;
+        flex-direction: column; padding: 8px; gap: 2px; z-index: 49;
+        box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      }
+      nav .flex.ml-8.gap-1.mobile-nav-open { display: flex; }
+      nav .flex.ml-8.gap-1 .nav-btn { text-align: left; width: 100%; }
+
+      /* Hide desktop-only controls on mobile */
+      .desktop-only { display: none !important; }
+
+      /* Mobile status bar - show agent count + restart only */
+      .mobile-controls { display: flex !important; }
+
+      /* Stats cards: 2 cols on mobile */
+      #stats-cards { grid-template-columns: repeat(2, 1fr) !important; }
+
+      /* Reduce padding */
+      .max-w-7xl, .max-w-6xl { padding-left: 16px !important; padding-right: 16px !important; }
+
+      /* Split-pane pages: sidebar takes full width, detail is hidden until selected */
+      #page-agents, #page-skills, #page-groups, #page-rules {
+        flex-direction: column;
+      }
+      #page-agents > aside, #page-skills > aside, #page-groups > aside, #page-rules > aside {
+        width: 100% !important; min-width: 0 !important;
+        border-right: none !important; border-bottom: 1px solid #1f2937;
+        max-height: none; height: 100%;
+      }
+      /* When detail is shown on mobile, hide sidebar */
+      .mobile-detail-active > aside { display: none !important; }
+      .mobile-detail-active > .flex-1 { display: flex !important; }
+      .mobile-detail-active .mobile-back-btn { display: inline-flex; }
+
+      /* When no detail selected on mobile, hide the detail panel */
+      #page-agents:not(.mobile-detail-active) > .flex-1,
+      #page-skills:not(.mobile-detail-active) > .flex-1,
+      #page-groups:not(.mobile-detail-active) > .flex-1,
+      #page-rules:not(.mobile-detail-active) > .flex-1 { display: none !important; }
+
+      /* Access page: stack columns */
+      #page-access .grid-cols-2 { grid-template-columns: 1fr !important; }
+      #page-access .flex.items-center.justify-between.mb-8 { flex-direction: column; align-items: stretch; gap: 12px; }
+      #page-access .flex.items-center.justify-between.mb-8 .flex.gap-3 { justify-content: flex-end; }
+
+      /* Modal sizing */
+      #modal-content { width: calc(100vw - 32px) !important; max-width: 400px; }
+
+      /* Toast positioning */
+      #toast { right: 16px; left: 16px; bottom: 16px; }
+    }
+
+    @media (max-width: 480px) {
+      #stats-cards { grid-template-columns: repeat(2, 1fr) !important; gap: 8px !important; }
+      #stats-cards > div { padding: 12px !important; }
+      #stats-cards .text-3xl { font-size: 1.5rem !important; }
+      nav { padding-left: 12px !important; padding-right: 12px !important; }
+      .brand-title { font-size: 15px !important; }
+    }
   </style>
   <script>
     tailwind.config = {
@@ -40,11 +116,14 @@
 
   <!-- Top Nav -->
   <nav class="h-14 bg-gray-900 border-b border-gray-800 flex items-center px-6 shrink-0 fixed top-0 left-0 right-0 z-50">
+    <button class="mobile-menu-btn" onclick="toggleMobileNav()" aria-label="Menu">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="5" x2="17" y2="5"/><line x1="3" y1="10" x2="17" y2="10"/><line x1="3" y1="15" x2="17" y2="15"/></svg>
+    </button>
     <div class="flex items-center gap-3">
       <span class="text-blue-400 text-xl">◆</span>
-      <span class="text-lg font-semibold tracking-tight">OpenClaw Manager</span>
+      <span class="text-lg font-semibold tracking-tight brand-title">OpenClaw Manager</span>
     </div>
-    <div class="flex ml-8 gap-1">
+    <div class="flex ml-8 gap-1" id="mobile-nav">
       <button onclick="navigate('dashboard')" id="nav-dashboard" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Dashboard</button>
       <button onclick="navigate('agents')" id="nav-agents" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Agents</button>
       <button onclick="navigate('skills')" id="nav-skills" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Skills</button>
@@ -53,11 +132,11 @@
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
     </div>
     <div class="ml-auto flex items-center gap-4">
-      <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer">
+      <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer desktop-only">
         <input id="verbose-default-toggle" type="checkbox" onchange="toggleVerboseDefault(this.checked)" class="rounded border-gray-700 bg-gray-800 text-blue-500 focus:ring-blue-500/40" />
         <span>Verbose default</span>
       </label>
-      <label class="flex items-center gap-2 text-xs text-gray-400">
+      <label class="flex items-center gap-2 text-xs text-gray-400 desktop-only">
         <span>Logging level</span>
         <select id="logging-level-select" onchange="changeLoggingLevel(this.value)" class="px-2 py-1 bg-gray-800 border border-gray-700 rounded-lg text-xs text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
           <option value="silent">silent</option>
@@ -123,7 +202,10 @@
       <!-- Skills sidebar -->
       <aside class="w-80 bg-gray-900 border-r border-gray-800 flex flex-col h-full shrink-0 overflow-hidden">
         <div class="p-3 space-y-2">
-          <button onclick="showSkillCreate()" class="w-full px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Skill</button>
+          <div class="flex gap-2">
+            <button onclick="showSkillCreate()" class="flex-1 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition">+ New Skill</button>
+            <button onclick="showSkillUpload()" class="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium rounded-lg transition" title="Upload skill folder (.zip)">📤</button>
+          </div>
           <input id="skill-filter" type="text" placeholder="Filter skills..." oninput="renderSkillSidebar()"
             class="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
           <div class="flex gap-1 flex-wrap">
@@ -362,10 +444,36 @@ async function loadSkills() {
 // ═══════════════════════════════════════════════════════════
 // Navigation
 // ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+// Mobile helpers
+// ═══════════════════════════════════════════════════════════
+function toggleMobileNav() {
+  document.getElementById('mobile-nav').classList.toggle('mobile-nav-open');
+}
+function closeMobileNav() {
+  document.getElementById('mobile-nav').classList.remove('mobile-nav-open');
+}
+function isMobile() { return window.innerWidth <= 768; }
+
+// Show detail view on mobile (hides sidebar)
+function mobileShowDetail(pageId) {
+  if (isMobile()) {
+    document.getElementById(pageId).classList.add('mobile-detail-active');
+  }
+}
+// Back to sidebar list on mobile
+function mobileBackToList(pageId) {
+  document.getElementById(pageId).classList.remove('mobile-detail-active');
+}
+
 async function navigate(page) {
   vlog('Navigating', { page });
+  closeMobileNav();
   state.currentPage = page;
-  document.querySelectorAll('.page').forEach(p => p.classList.add('hidden'));
+  document.querySelectorAll('.page').forEach(p => {
+    p.classList.add('hidden');
+    p.classList.remove('mobile-detail-active');
+  });
   document.getElementById(`page-${page}`).classList.remove('hidden');
 
   document.querySelectorAll('.nav-btn').forEach(b => {
@@ -636,6 +744,7 @@ async function selectAgent(name) {
   document.getElementById('agent-empty').classList.add('hidden');
   const detail = document.getElementById('agent-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-agents');
 
   const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
   const vibe = a.identity?.vibe || '';
@@ -705,6 +814,7 @@ async function selectAgent(name) {
     : '';
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-agents')">← Agents</button>
     <div class="p-8 space-y-6">
       <!-- Header -->
       <div class="flex items-start justify-between">
@@ -886,6 +996,7 @@ function selectSkill(id) {
   document.getElementById('skill-create').classList.add('hidden');
   const detail = document.getElementById('skill-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-skills');
 
   const tierColor = s.tier === 'platform' ? 'blue' : s.tier === 'global' ? 'amber' : 'green';
   const isEditable = s.tier !== 'platform';
@@ -915,6 +1026,7 @@ function selectSkill(id) {
   const accessDropdown = tagsSection;
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-skills')">← Skills</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <div>
         <div class="flex items-center gap-3">
@@ -1008,9 +1120,11 @@ function showSkillCreate() {
   document.getElementById('skill-detail').classList.add('hidden');
   const panel = document.getElementById('skill-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-skills');
 
   const agentOpts = state.agents.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-skills')">← Skills</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <h2 class="text-xl font-semibold">Create New Skill</h2>
       <div class="flex gap-2">
@@ -1050,6 +1164,178 @@ function showSkillCreate() {
           style="min-height: 300px"></textarea>
       </div>
     </div>`;
+}
+
+function showSkillUpload() {
+  state.selectedSkill = null;
+  renderSkillSidebar();
+  document.getElementById('skill-empty').classList.add('hidden');
+  document.getElementById('skill-detail').classList.add('hidden');
+  const panel = document.getElementById('skill-create');
+  panel.classList.remove('hidden');
+  pendingSkillFiles = [];
+
+  const agentOpts = state.agents.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+  panel.innerHTML = `
+    <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
+      <h2 class="text-xl font-semibold">Upload Skills</h2>
+      <div class="flex gap-2">
+        <button onclick="hideSkillCreate()" class="px-4 py-2 text-sm text-gray-400 hover:bg-gray-800 rounded-lg transition">Cancel</button>
+        <button onclick="uploadSkills()" id="upload-skill-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Upload</button>
+      </div>
+    </header>
+    <div class="flex-1 overflow-y-auto p-8 space-y-6">
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Target</label>
+        <select id="supload-ws" class="w-full px-4 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+          <option value="__global__">\ud83c\udf0d Global (all agents)</option>
+          ${agentOpts}
+        </select>
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-400 mb-1.5">Skill Folders</label>
+        <div id="upload-drop-zone" 
+          class="border-2 border-dashed border-gray-700 rounded-xl p-8 text-center hover:border-blue-500/50 transition cursor-pointer"
+          ondragover="event.preventDefault(); this.classList.add('border-blue-500', 'bg-blue-500/5')"
+          ondragleave="this.classList.remove('border-blue-500', 'bg-blue-500/5')"
+          ondrop="event.preventDefault(); this.classList.remove('border-blue-500', 'bg-blue-500/5'); handleSkillDrop(event)">
+          <div class="text-4xl mb-3">\ud83d\udcc1</div>
+          <div class="text-sm text-gray-400">Drop .zip files here, or use the buttons below</div>
+          <div class="text-xs text-gray-600 mt-1">Each folder must contain a SKILL.md file</div>
+          <div id="upload-file-list" class="text-sm text-left mt-4 space-y-1"></div>
+        </div>
+        <div class="flex gap-2 mt-3">
+          <button onclick="document.getElementById('skill-zip-input').click()" class="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition border border-gray-700">\ud83d\udce6 Select .zip files</button>
+          <button onclick="document.getElementById('skill-folder-input').click()" class="flex-1 px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm rounded-lg transition border border-gray-700">\ud83d\udcc2 Select folders</button>
+        </div>
+        <input type="file" id="skill-zip-input" accept=".zip" multiple class="hidden" onchange="handleZipSelect(this)" />
+        <input type="file" id="skill-folder-input" webkitdirectory multiple class="hidden" onchange="handleFolderSelect(this)" />
+      </div>
+    </div>`;
+}
+
+let pendingSkillFiles = [];
+
+function handleZipSelect(input) {
+  if (!input?.files?.length) return;
+  for (const file of input.files) {
+    if (!file.name.endsWith('.zip')) { toast(`Skipped ${file.name} — not a .zip`, 'red'); continue; }
+    pendingSkillFiles.push({ type: 'zip', file, name: file.name });
+  }
+  input.value = '';
+  renderUploadFileList();
+}
+
+function handleFolderSelect(input) {
+  if (!input?.files?.length) return;
+  // Group files by their top-level folder
+  const folders = {};
+  for (const file of input.files) {
+    const rel = file.webkitRelativePath || file.name;
+    const topFolder = rel.split('/')[0];
+    if (!folders[topFolder]) folders[topFolder] = [];
+    folders[topFolder].push(file);
+  }
+  for (const [folderName, files] of Object.entries(folders)) {
+    // Check if this folder has a SKILL.md
+    const hasSkillMd = files.some(f => {
+      const rel = f.webkitRelativePath || f.name;
+      const parts = rel.split('/');
+      // SKILL.md should be at depth 1 (folderName/SKILL.md)
+      return parts.length === 2 && parts[1] === 'SKILL.md';
+    });
+    if (!hasSkillMd) {
+      // Check deeper
+      const hasDeep = files.some(f => (f.webkitRelativePath || f.name).includes('SKILL.md'));
+      if (!hasDeep) { toast(`Skipped ${folderName} — no SKILL.md found`, 'red'); continue; }
+    }
+    pendingSkillFiles.push({ type: 'folder', files, name: folderName });
+  }
+  input.value = '';
+  renderUploadFileList();
+}
+
+function handleSkillDrop(event) {
+  const files = event.dataTransfer?.files;
+  if (!files?.length) return;
+  for (const file of files) {
+    if (file.name.endsWith('.zip')) {
+      pendingSkillFiles.push({ type: 'zip', file, name: file.name });
+    } else {
+      toast(`Skipped ${file.name} — drop .zip files or use the folder button`, 'red');
+    }
+  }
+  renderUploadFileList();
+}
+
+function removeUploadItem(idx) {
+  pendingSkillFiles.splice(idx, 1);
+  renderUploadFileList();
+}
+
+function renderUploadFileList() {
+  const el = document.getElementById('upload-file-list');
+  const btn = document.getElementById('upload-skill-btn');
+  if (!el) return;
+  if (!pendingSkillFiles.length) {
+    el.innerHTML = '';
+    if (btn) btn.disabled = true;
+    return;
+  }
+  if (btn) btn.disabled = false;
+  el.innerHTML = pendingSkillFiles.map((item, i) => {
+    const icon = item.type === 'zip' ? '\ud83d\udce6' : '\ud83d\udcc2';
+    const size = item.type === 'zip' ? `(${(item.file.size / 1024).toFixed(1)} KB)` : `(${item.files.length} files)`;
+    return `<div class="flex items-center justify-between bg-gray-800/50 rounded px-3 py-1.5">
+      <span class="text-blue-400">${icon} ${esc(item.name)} <span class="text-gray-500 text-xs">${size}</span></span>
+      <button onclick="removeUploadItem(${i})" class="text-gray-500 hover:text-red-400 text-xs ml-2">\u2715</button>
+    </div>`;
+  }).join('');
+}
+
+async function uploadSkills() {
+  if (!pendingSkillFiles.length) { toast('No files selected', 'red'); return; }
+  const workspace = document.getElementById('supload-ws').value;
+  const formData = new FormData();
+  formData.append('workspace', workspace);
+
+  for (const item of pendingSkillFiles) {
+    if (item.type === 'zip') {
+      formData.append('files', item.file, item.file.name);
+    } else {
+      // Folder — append each file with its relative path
+      for (const file of item.files) {
+        const rel = file.webkitRelativePath || file.name;
+        formData.append('files', file, rel);
+      }
+    }
+  }
+
+  showLoading('Uploading skills...');
+  try {
+    const res = await fetch('/api/skills/upload', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: 'Upload failed' }));
+      throw new Error(err.detail || 'Upload failed');
+    }
+    const data = await res.json();
+    const msg = data.errors?.length
+      ? `Uploaded ${data.count}: ${data.created.join(', ')} (${data.errors.length} error(s))`
+      : `Uploaded ${data.count} skill(s): ${data.created.join(', ')}`;
+    toast(msg, data.errors?.length ? 'blue' : 'green');
+    pendingSkillFiles = [];
+    hideSkillCreate();
+    await loadSkills();
+    renderSkillSidebar();
+    if (data.created.length) {
+      const newId = workspace === '__global__' ? `global/${data.created[0]}` : `${workspace}/${data.created[0]}`;
+      selectSkill(newId);
+    }
+  } catch (e) {
+    toast(e.message, 'red');
+  } finally {
+    hideLoading();
+  }
 }
 
 function showSkillCreateForAgent(agent) {
@@ -1240,7 +1526,9 @@ function showCreateRule() {
   hideAllRulePanels();
   const panel = document.getElementById('rules-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-rules');
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-rules')">← Rules</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 shrink-0">
       <h2 class="text-xl font-semibold">Create New Rule</h2>
       <p class="text-sm text-gray-500 mt-0.5">Classification rules define behavior boundaries for groups of agents</p>
@@ -1295,6 +1583,7 @@ function selectRule(name) {
   hideAllRulePanels();
   const detail = document.getElementById('rules-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-rules');
 
   const agentsInCls = state.agents.filter(a => a.classification === name);
   const otherAgents = state.agents.filter(a => a.classification !== name);
@@ -1302,6 +1591,7 @@ function selectRule(name) {
   const color = ruleColor(name, idx >= 0 ? idx : 0);
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-rules')">← Rules</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <div>
         <div class="flex items-center gap-3">
@@ -1458,6 +1748,7 @@ function selectGroup(name) {
   document.getElementById('groups-create').classList.add('hidden');
   const detail = document.getElementById('groups-detail');
   detail.classList.remove('hidden');
+  mobileShowDetail('page-groups');
 
   const tag = sa.tags[name];
   const tagSkills = Object.entries(sa.skills || {}).filter(([_, s]) => (s.tags || []).includes(name));
@@ -1506,6 +1797,7 @@ function selectGroup(name) {
     : '<p class="text-sm text-gray-500 py-2">No agents in this group</p>';
 
   detail.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-groups')">← Groups</button>
     <div class="p-8 space-y-6">
       <!-- Header -->
       <div class="flex items-start justify-between">
@@ -1579,8 +1871,10 @@ function showCreateGroup() {
   document.getElementById('groups-detail').classList.add('hidden');
   const panel = document.getElementById('groups-create');
   panel.classList.remove('hidden');
+  mobileShowDetail('page-groups');
 
   panel.innerHTML = `
+    <button class="mobile-back-btn" onclick="mobileBackToList('page-groups')">← Groups</button>
     <header class="px-8 py-5 border-b border-gray-800 bg-gray-900/50 flex items-center justify-between shrink-0">
       <h2 class="text-xl font-semibold">Create New Group</h2>
       <div class="flex gap-2">
