@@ -631,6 +631,12 @@ function renderDashboard() {
       ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-500/15 text-gray-400 font-semibold uppercase">no workspace</span>`
       : '';
     const borderClass = a.orphan ? 'border-amber-500/30' : !a.has_workspace ? 'border-gray-700 border-dashed' : 'border-gray-800';
+    const orgBadge = a.organization
+      ? `<span class="text-[10px] px-1.5 py-0.5 rounded font-semibold uppercase tracking-wide ${a.organization === 'partnrUP' ? 'bg-purple-500/15 text-purple-300' : 'bg-blue-500/15 text-blue-300'}">${esc(a.organization)}</span>`
+      : '';
+    const appsHtml = (a.apps || []).length
+      ? `<div class="flex flex-wrap gap-1 mt-2">${a.apps.map(app => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(app)}</span>`).join('')}</div>`
+      : '';
 
     return `
       <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
@@ -645,6 +651,7 @@ function renderDashboard() {
             </div>
           </div>
           <div class="flex flex-col items-end gap-1">
+            ${orgBadge}
             ${clsBadge}
             ${toolsBadge}
             ${orphanBadge}
@@ -655,7 +662,8 @@ function renderDashboard() {
           <span class="text-blue-400">${esc(modelShort)}</span>
           <span class="text-gray-500">${a.skill_count} skill${a.skill_count !== 1 ? 's' : ''}${a.global_skill_count ? ` + ${a.global_skill_count} global` : ''}</span>
         </div>
-        ${a.skill_count > 0 ? `<div class="flex flex-wrap gap-1 mt-3">${a.skills.map(s => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(s.folder)}</span>`).join('')}</div>` : ''}
+        ${appsHtml}
+        ${a.skill_count > 0 ? `<div class="flex flex-wrap gap-1 mt-2">${a.skills.map(s => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(s.folder)}</span>`).join('')}</div>` : ''}
       </div>`;
   }).join('');
 
@@ -839,6 +847,18 @@ async function selectAgent(name) {
 
       ${wsBanner}
       ${toolsHtml}
+
+      <!-- Organization & Apps -->
+      ${a.organization || (a.apps || []).length ? `<div class="grid grid-cols-2 gap-6">
+        <div>
+          <div class="text-sm font-medium text-gray-400 mb-2">Organization</div>
+          <span class="text-xs px-2 py-1 rounded font-semibold ${a.organization === 'partnrUP' ? 'bg-purple-500/15 text-purple-300' : 'bg-blue-500/15 text-blue-300'}">${a.organization ? esc(a.organization) : '—'}</span>
+        </div>
+        <div>
+          <div class="text-sm font-medium text-gray-400 mb-2">Connected Apps</div>
+          <div class="flex flex-wrap gap-1">${(a.apps || []).map(app => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(app)}</span>`).join('') || '<span class="text-xs text-gray-500">—</span>'}</div>
+        </div>
+      </div>` : ''}
 
       <!-- Workspace files -->
       ${hasWorkspace ? `<div>
