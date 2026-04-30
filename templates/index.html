@@ -723,7 +723,7 @@ function renderDashboard() {
     const appsHtml = (a.apps || []).length
       ? `<div class="flex flex-wrap gap-1 mt-2">${a.apps.map(app => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(app)}</span>`).join('')}</div>`
       : '';
-    const totalSkills = (a.skill_count || 0) + (a.global_skill_count || 0);
+    const totalSkills = a.config_skill_count || 0;
 
     return `
       <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
@@ -818,7 +818,7 @@ function renderAgentSidebar() {
           ${statusBadge}
         </div>
         <div class="flex justify-between text-xs text-gray-500 mt-0.5 pl-6">
-          <span>${a.skill_count} skills</span>
+          <span>${a.config_skill_count || 0} skills</span>
           <span class="text-blue-400/70">${esc(modelShort)}</span>
         </div>
       </button>`;
@@ -952,7 +952,7 @@ async function selectAgent(name) {
       <!-- Skills -->
       <div>
         <div class="flex items-center justify-between mb-3">
-          <div class="text-sm font-medium text-gray-400">Per-Agent Skills (${a.skill_count})</div>
+          <div class="text-sm font-medium text-gray-400">Configured Skills (${a.config_skill_count || 0})</div>
           <button onclick="showSkillCreateForAgent('${esc(a.name)}')" class="text-xs text-blue-400 hover:text-blue-300">+ Add Skill</button>
         </div>
         <div class="space-y-2">${skillsHtml}</div>

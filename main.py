@@ -436,6 +436,9 @@ def scan_agents() -> list[dict]:
         classification = cls_map.get(display_name, cls_map.get(name, ""))
         agent_tags = agent_tags_map.get(name, {}).get("tags", [])
 
+        # Skills explicitly configured in openclaw.json
+        config_skills = agent_cfg.get("skills", [])
+
         # Tools config
         tools = agent_cfg.get("tools", {})
 
@@ -485,6 +488,8 @@ def scan_agents() -> list[dict]:
             "tools": tools,
             "skills": agent_skills,
             "skill_count": len(agent_skills),
+            "config_skills": config_skills,
+            "config_skill_count": len(set(config_skills) | {s["folder"] for s in agent_skills}),
             "global_skills": agent_global_skills,
             "global_skill_count": len(agent_global_skills),
             "files": {k: True for k in files},
