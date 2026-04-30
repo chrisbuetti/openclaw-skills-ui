@@ -2,6 +2,7 @@ import os
 import re
 import glob
 import subprocess
+import asyncio
 import logging
 from pathlib import Path
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
@@ -864,6 +865,42 @@ async def api_restart_gateway():
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- Diagnose ---
+
+
+DIAGNOSE_PROMPT_PATH = os.path.join(OCPLATFORM_DIR, "scripts", "slack-debug-prompt.md")
+
+
+@app.post("/api/diagnose")
+async def api_diagnose():
+    """Run the OCPlatform diagnostic using Claude CLI."""
+    if not os.path.isfile(DIAGNOSE_PROMPT_PATH):
+        raise HTTPException(status_code=404, detail=f"Diagnostic prompt not found at {DIAGNOSE_PROMPT_PATH}")
+    try:
+        prompt_content = Path(DIAGNOSE_PROMPT_PATH).read_text(encoding="utf-8")
+        log_verbose("Running OpenClaw diagnostic")
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "--print", "-p", prompt_content,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=120)
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.communicate()
+            return {"ok": False, "error": "Diagnostic timed out after 120 seconds"}
+        output = stdout.decode("utf-8", errors="replace")
+        err_output = stderr.decode("utf-8", errors="replace")
+        if proc.returncode != 0:
+            return {"ok": False, "output": output, "error": err_output or f"Process exited with code {proc.returncode}"}
+        return {"ok": True, "output": output}
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="Claude CLI not found. Is 'claude' installed and in PATH?")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 # --- Skills ---
 
 
@@ -1389,6 +1426,129 @@ async def delete_agent_photo(name: str):
             os.remove(p)
             removed = True
     return {"ok": True, "removed": removed}
+
+
+# ──────────────────────────────────────────────────────────────
+# CONTEXT.md Editor
+# ──────────────────────────────────────────────────────────────
+
+CONTEXT_MD_PATH = os.path.join(OCPLATFORM_DIR, "CONTEXT.md")
+
+
+@app.get("/api/context")
+async def get_context():
+    """Read ~/.openclaw/CONTEXT.md."""
+    content = ""
+    if os.path.isfile(CONTEXT_MD_PATH):
+        content = Path(CONTEXT_MD_PATH).read_text(encoding="utf-8")
+    return {"content": content, "path": CONTEXT_MD_PATH}
+
+
+class ContextUpdate(BaseModel):
+    content: str
+
+
+@app.put("/api/context")
+async def save_context(body: ContextUpdate):
+    """Save ~/.openclaw/CONTEXT.md."""
+    os.makedirs(os.path.dirname(CONTEXT_MD_PATH), exist_ok=True)
+    Path(CONTEXT_MD_PATH).write_text(body.content, encoding="utf-8")
+    log_verbose("Saved CONTEXT.md")
+    return {"ok": True, "path": CONTEXT_MD_PATH}
+
+
+# ──────────────────────────────────────────────────────────────
+# Cron Jobs Manager
+# ──────────────────────────────────────────────────────────────
+
+def _run_openclaw_cmd(args: list, timeout: int = 30) -> dict:
+    """Run an openclaw CLI command and return parsed output."""
+    try:
+        result = subprocess.run(
+            [OCPLATFORM_BIN] + args,
+            capture_output=True, text=True, timeout=timeout
+        )
+        stdout = result.stdout.strip()
+        # Try to parse as JSON
+        if stdout:
+            try:
+                return {"ok": result.returncode == 0, "data": json.loads(stdout)}
+            except json.JSONDecodeError:
+                return {"ok": result.returncode == 0, "data": stdout, "raw": True}
+        return {
+            "ok": result.returncode == 0,
+            "data": None,
+            "stderr": result.stderr.strip(),
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "Command timed out"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@app.get("/api/crons")
+async def list_crons():
+    """List all cron jobs."""
+    result = _run_openclaw_cmd(["cron", "list", "--json"])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to list cron jobs")))
+    data = result.get("data", {})
+    return data if isinstance(data, dict) else {"jobs": []}
+
+
+@app.get("/api/crons/status")
+async def cron_status():
+    """Get cron scheduler status."""
+    result = _run_openclaw_cmd(["cron", "status", "--json"])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", "Failed to get cron status"))
+    return result.get("data", {})
+
+
+@app.get("/api/crons/{cron_id}")
+async def get_cron(cron_id: str):
+    """Show a specific cron job."""
+    result = _run_openclaw_cmd(["cron", "show", cron_id, "--json"])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to get cron job")))
+    return result.get("data", {})
+
+
+@app.post("/api/crons/{cron_id}/run")
+async def run_cron(cron_id: str):
+    """Trigger a cron job to run now."""
+    result = _run_openclaw_cmd(["cron", "run", cron_id], timeout=10)
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to run cron job")))
+    return {"ok": True, "data": result.get("data")}
+
+
+@app.put("/api/crons/{cron_id}/enable")
+async def enable_cron(cron_id: str):
+    """Enable a cron job."""
+    result = _run_openclaw_cmd(["cron", "enable", cron_id])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to enable cron job")))
+    return {"ok": True}
+
+
+@app.put("/api/crons/{cron_id}/disable")
+async def disable_cron(cron_id: str):
+    """Disable a cron job."""
+    result = _run_openclaw_cmd(["cron", "disable", cron_id])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to disable cron job")))
+    return {"ok": True}
+
+
+@app.get("/api/crons/{cron_id}/runs")
+async def get_cron_runs(cron_id: str, limit: int = 10):
+    """Get run history for a cron job."""
+    result = _run_openclaw_cmd(["cron", "runs", "--id", cron_id, "--limit", str(limit)])
+    if not result["ok"]:
+        raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to get cron runs")))
+    data = result.get("data", {})
+    return data if isinstance(data, dict) else {"entries": []}
 
 
 if __name__ == "__main__":
