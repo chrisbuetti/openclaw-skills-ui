@@ -757,21 +757,25 @@ function renderSkillMatrix() {
   const d = state.dashboard;
   if (!d) return;
 
-  // Collect all unique per-agent skill names
+  // Collect all unique skill names from both config_skills and workspace skills
   const allSkillNames = new Set();
-  d.agents.forEach(a => a.skills.forEach(s => allSkillNames.add(s.folder)));
+  d.agents.forEach(a => {
+    (a.config_skills || []).forEach(s => allSkillNames.add(s));
+    a.skills.forEach(s => allSkillNames.add(s.folder));
+  });
   const skillNames = [...allSkillNames].sort();
 
   if (skillNames.length === 0) {
-    document.getElementById('skill-matrix').innerHTML = '<p class="text-gray-500 text-sm">No per-agent skills found</p>';
+    document.getElementById('skill-matrix').innerHTML = '<p class="text-gray-500 text-sm">No skills configured for any agent</p>';
     return;
   }
 
-  // Precompute each agent's skill set once
-  const agentSkillSets = d.agents.map(a => ({
-    agent: a,
-    skills: new Set(a.skills.map(s => s.folder)),
-  }));
+  // Precompute each agent's skill set (union of config + workspace)
+  const agentSkillSets = d.agents.map(a => {
+    const combined = new Set((a.config_skills || []));
+    a.skills.forEach(s => combined.add(s.folder));
+    return { agent: a, skills: combined };
+  });
 
   let html = '<table class="text-xs w-full"><thead><tr><th class="text-left px-2 py-1 text-gray-500 font-medium sticky left-0 bg-gray-900">Skill</th>';
   agentSkillSets.forEach(({ agent }) => {
