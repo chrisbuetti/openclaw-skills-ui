@@ -489,7 +489,7 @@ def scan_agents() -> list[dict]:
             "skills": agent_skills,
             "skill_count": len(agent_skills),
             "config_skills": config_skills,
-            "config_skill_count": len(set(config_skills) | {s["folder"] for s in agent_skills}),
+            "total_skill_count": len(set(config_skills) | {s["folder"] for s in agent_skills}),
             "global_skills": agent_global_skills,
             "global_skill_count": len(agent_global_skills),
             "files": {k: True for k in files},

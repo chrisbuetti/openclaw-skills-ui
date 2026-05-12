@@ -173,8 +173,7 @@
           <h2 class="text-lg font-semibold">Agents</h2>
           <select id="org-filter" onchange="setOrgFilter(this.value)" class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
             <option value="">All</option>
-            <option value="Rose Water Capital">Rose Water Capital</option>
-            <option value="partnrUP">partnrUP</option>
+            <!-- Options populated dynamically in renderDashboard() -->
           </select>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8" id="agent-grid"></div>
@@ -699,14 +698,28 @@ function renderDashboard() {
   const d = state.dashboard;
   if (!d) return;
 
-  // Stats cards (agent count reflects org filter)
-  const s = d.skill_summary;
-  const displayAgents = state.orgFilter
+  // Compute filtered agents once (used by stats, cards, and matrix)
+  const filteredAgents = state.orgFilter
     ? d.agents.filter(a => a.organization === state.orgFilter)
     : d.agents;
+
+  // Populate org filter dropdown dynamically from agent data
+  const orgSelect = document.getElementById('org-filter');
+  if (orgSelect && orgSelect.options.length <= 1) {
+    const orgs = [...new Set(d.agents.map(a => a.organization).filter(Boolean))].sort();
+    orgs.forEach(org => {
+      const opt = document.createElement('option');
+      opt.value = org;
+      opt.textContent = org;
+      orgSelect.appendChild(opt);
+    });
+  }
+
+  // Stats cards (agent count reflects org filter)
+  const s = d.skill_summary;
   document.getElementById('stats-cards').innerHTML = `
     <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
-      <div class="text-3xl font-bold text-blue-400">${displayAgents.length}</div>
+      <div class="text-3xl font-bold text-blue-400">${filteredAgents.length}</div>
       <div class="text-sm text-gray-400 mt-1">Agents${state.orgFilter ? ' (' + esc(state.orgFilter) + ')' : ''}</div>
     </div>
     <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
@@ -723,10 +736,7 @@ function renderDashboard() {
     </div>
   `;
 
-  // Agent cards (filtered by org)
-  const filteredAgents = state.orgFilter
-    ? d.agents.filter(a => a.organization === state.orgFilter)
-    : d.agents;
+  // Agent cards (using shared filteredAgents)
   document.getElementById('agent-grid').innerHTML = filteredAgents.map(a => {
     const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
     const modelShort = (a.model || 'unknown').split('/').pop();
@@ -737,7 +747,7 @@ function renderDashboard() {
     const appsHtml = (a.apps || []).length
       ? `<div class="flex flex-wrap gap-1 mt-2">${a.apps.map(app => `<span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">${esc(app)}</span>`).join('')}</div>`
       : '';
-    const totalSkills = a.config_skill_count || 0;
+    const totalSkills = a.total_skill_count || 0;
 
     return `
       <div onclick="navigate('agents'); setTimeout(() => selectAgent('${esc(a.name)}'), 100)"
@@ -780,7 +790,7 @@ function renderSkillMatrix() {
   const d = state.dashboard;
   if (!d) return;
 
-  // Use org-filtered agents for the matrix too
+  // Reuse filtered agents for the matrix
   const matrixAgents = state.orgFilter
     ? d.agents.filter(a => a.organization === state.orgFilter)
     : d.agents;
@@ -850,7 +860,7 @@ function renderAgentSidebar() {
           ${statusBadge}
         </div>
         <div class="flex justify-between text-xs text-gray-500 mt-0.5 pl-6">
-          <span>${a.config_skill_count || 0} skills</span>
+          <span>${a.total_skill_count || 0} skills</span>
           <span class="text-blue-400/70">${esc(modelShort)}</span>
         </div>
       </button>`;
@@ -984,7 +994,7 @@ async function selectAgent(name) {
       <!-- Skills -->
       <div>
         <div class="flex items-center justify-between mb-3">
-          <div class="text-sm font-medium text-gray-400">Configured Skills (${a.config_skill_count || 0})</div>
+          <div class="text-sm font-medium text-gray-400">Configured Skills (${a.total_skill_count || 0})</div>
           <button onclick="showSkillCreateForAgent('${esc(a.name)}')" class="text-xs text-blue-400 hover:text-blue-300">+ Add Skill</button>
         </div>
         <div class="space-y-2">${skillsHtml}</div>
