@@ -169,7 +169,13 @@
         <div class="grid grid-cols-4 gap-4 mb-8" id="stats-cards"></div>
 
         <!-- Agent Grid -->
-        <h2 class="text-lg font-semibold mb-4">Agents</h2>
+        <div class="flex items-center gap-3 mb-4">
+          <h2 class="text-lg font-semibold">Agents</h2>
+          <select id="org-filter" onchange="setOrgFilter(this.value)" class="px-3 py-1.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+            <option value="">All</option>
+            <!-- Options populated dynamically in renderDashboard() -->
+          </select>
+        </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8" id="agent-grid"></div>
 
         <!-- Skill Matrix -->
@@ -461,6 +467,7 @@ let state = {
   selectedSkill: null,
   selectedRule: null,
   skillTierFilter: '',
+  orgFilter: '',
   dirty: false,
   skillAccess: null,
   selectedGroup: null,
@@ -691,12 +698,29 @@ function renderDashboard() {
   const d = state.dashboard;
   if (!d) return;
 
-  // Stats cards
+  // Compute filtered agents once (used by stats, cards, and matrix)
+  const filteredAgents = state.orgFilter
+    ? d.agents.filter(a => a.organization === state.orgFilter)
+    : d.agents;
+
+  // Populate org filter dropdown dynamically from agent data
+  const orgSelect = document.getElementById('org-filter');
+  if (orgSelect && orgSelect.options.length <= 1) {
+    const orgs = [...new Set(d.agents.map(a => a.organization).filter(Boolean))].sort();
+    orgs.forEach(org => {
+      const opt = document.createElement('option');
+      opt.value = org;
+      opt.textContent = org;
+      orgSelect.appendChild(opt);
+    });
+  }
+
+  // Stats cards (agent count reflects org filter)
   const s = d.skill_summary;
   document.getElementById('stats-cards').innerHTML = `
     <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
-      <div class="text-3xl font-bold text-blue-400">${d.agents.length}</div>
-      <div class="text-sm text-gray-400 mt-1">Agents</div>
+      <div class="text-3xl font-bold text-blue-400">${filteredAgents.length}</div>
+      <div class="text-sm text-gray-400 mt-1">Agents${state.orgFilter ? ' (' + esc(state.orgFilter) + ')' : ''}</div>
     </div>
     <div class="bg-gray-900 rounded-xl border border-gray-800 p-5">
       <div class="text-3xl font-bold text-green-400">${s.agent}</div>
@@ -712,8 +736,8 @@ function renderDashboard() {
     </div>
   `;
 
-  // Agent cards
-  document.getElementById('agent-grid').innerHTML = d.agents.map(a => {
+  // Agent cards (using shared filteredAgents)
+  document.getElementById('agent-grid').innerHTML = filteredAgents.map(a => {
     const emoji = a.identity?.emoji || (a.config_identity?.emoji || '🤖');
     const modelShort = (a.model || 'unknown').split('/').pop();
     const borderClass = a.orphan ? 'border-amber-500/30' : !a.has_workspace ? 'border-gray-700 border-dashed' : 'border-gray-800';
@@ -730,11 +754,11 @@ function renderDashboard() {
         class="bg-gray-900 rounded-xl border ${borderClass} p-5 hover:border-gray-600 cursor-pointer transition group">
         <div class="flex items-start justify-between mb-3">
           <div class="flex items-center gap-3">
-            <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-10 h-10 rounded-full object-cover border-2 border-gray-700 group-hover:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img src="/api/agents/${esc(a.name)}/photo?t=${Date.now()}" alt="${esc(a.display_name)}" class="w-10 h-10 rounded-full object-cover border-2 border-gray-700 group-hover:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
             <span class="text-2xl hidden items-center justify-center">${emoji}</span>
             <div>
               <div class="font-semibold">${esc(a.display_name)}</div>
-              <div class="text-xs text-gray-500">${esc(a.theme || a.name)}</div>
+              ${a.theme ? `<div class="text-xs text-gray-500">${esc(a.theme)}</div>` : ''}
             </div>
           </div>
           <div class="flex flex-col items-end gap-1">
@@ -749,29 +773,43 @@ function renderDashboard() {
       </div>`;
   }).join('');
 
+  // Update org filter dropdown to match state
+  const orgSel = document.getElementById('org-filter');
+  if (orgSel) orgSel.value = state.orgFilter || '';
+
   // Skill matrix
   renderSkillMatrix();
+}
+
+function setOrgFilter(value) {
+  state.orgFilter = value;
+  renderDashboard();
 }
 
 function renderSkillMatrix() {
   const d = state.dashboard;
   if (!d) return;
 
+  // Reuse filtered agents for the matrix
+  const matrixAgents = state.orgFilter
+    ? d.agents.filter(a => a.organization === state.orgFilter)
+    : d.agents;
+
   // Collect all unique skill names from both config_skills and workspace skills
   const allSkillNames = new Set();
-  d.agents.forEach(a => {
+  matrixAgents.forEach(a => {
     (a.config_skills || []).forEach(s => allSkillNames.add(s));
     a.skills.forEach(s => allSkillNames.add(s.folder));
   });
   const skillNames = [...allSkillNames].sort();
 
-  if (skillNames.length === 0) {
+  if (skillNames.length === 0 || matrixAgents.length === 0) {
     document.getElementById('skill-matrix').innerHTML = '<p class="text-gray-500 text-sm">No skills configured for any agent</p>';
     return;
   }
 
   // Precompute each agent's skill set (union of config + workspace)
-  const agentSkillSets = d.agents.map(a => {
+  const agentSkillSets = matrixAgents.map(a => {
     const combined = new Set((a.config_skills || []));
     a.skills.forEach(s => combined.add(s.folder));
     return { agent: a, skills: combined };
@@ -816,7 +854,7 @@ function renderAgentSidebar() {
       <button onclick="selectAgent('${esc(a.name)}')"
         class="w-full text-left px-3 py-2.5 rounded-lg text-sm transition ${active ? 'bg-blue-600/20 text-blue-300' : 'hover:bg-gray-800 text-gray-300'}">
         <div class="flex items-center gap-2">
-          <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-7 h-7 rounded-full object-cover border border-gray-700 shrink-0" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'" /><span class="hidden text-base">${emoji}</span>
+          <img src="/api/agents/${esc(a.name)}/photo?t=${Date.now()}" alt="${esc(a.display_name)}" class="w-7 h-7 rounded-full object-cover border border-gray-700 shrink-0" onerror="this.style.display='none';this.nextElementSibling.style.display='inline'" /><span class="hidden text-base">${emoji}</span>
           <span class="font-medium truncate">${esc(a.display_name)}</span>
           ${clsBadge}
           ${statusBadge}
@@ -914,7 +952,7 @@ async function selectAgent(name) {
       <div class="flex items-start justify-between">
         <div class="flex items-center gap-4">
           <div class="relative group/photo cursor-pointer" onclick="document.getElementById('agent-photo-upload').click()">
-            <img src="/api/agents/${esc(a.name)}/photo" alt="${esc(a.display_name)}" class="w-16 h-16 rounded-full object-cover border-2 border-gray-700 group-hover/photo:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
+            <img src="/api/agents/${esc(a.name)}/photo?t=${Date.now()}" alt="${esc(a.display_name)}" class="w-16 h-16 rounded-full object-cover border-2 border-gray-700 group-hover/photo:border-blue-500/50 transition" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
             <span class="text-5xl hidden items-center justify-center">${emoji}</span>
             <div class="absolute inset-0 rounded-full bg-black/40 opacity-0 group-hover/photo:opacity-100 transition flex items-center justify-center text-white text-xs font-semibold">📷</div>
           </div>
