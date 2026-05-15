@@ -370,25 +370,32 @@
 
     <!-- Crons Page -->
     <div id="page-crons" class="page hidden h-full flex flex-col">
-      <!-- Cron filter bar -->
+      <!-- Unified cron filter bar -->
       <div class="p-4 border-b border-gray-800 bg-gray-900/50 flex items-center gap-3 shrink-0">
         <input id="cron-filter" type="text" placeholder="Filter cron jobs..." oninput="renderCronTable()"
           class="w-64 px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500/40" />
         <div class="flex gap-1 flex-wrap">
           <button onclick="setCronFilter('')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-700 text-gray-300">All</button>
+          <button onclick="setCronFilter('openclaw')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">OpenClaw</button>
+          <button onclick="setCronFilter('launchd')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">LaunchAgent</button>
           <button onclick="setCronFilter('enabled')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Enabled</button>
           <button onclick="setCronFilter('disabled')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Disabled</button>
           <button onclick="setCronFilter('error')" class="cron-filter-btn text-xs px-2 py-1 rounded bg-gray-800 text-gray-500">Errors</button>
         </div>
+        <select id="cron-agent-filter" onchange="setCronAgentFilter(this.value)"
+          class="px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+          <option value="">All Agents</option>
+        </select>
         <span class="ml-auto text-xs text-gray-500" id="cron-count-bar"></span>
       </div>
 
-      <!-- Cron table -->
+      <!-- Unified cron table -->
       <div class="flex-1 overflow-y-auto px-4 py-2">
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
               <th class="py-3 px-3 font-medium">Name</th>
+              <th class="py-3 px-3 font-medium">Type</th>
               <th class="py-3 px-3 font-medium">Schedule</th>
               <th class="py-3 px-3 font-medium">Agent</th>
               <th class="py-3 px-3 font-medium">Status</th>
@@ -473,7 +480,11 @@ let state = {
   selectedGroup: null,
   selectedCron: null,
   cronJobs: [],
+  launchdAgents: [],
+  allCronJobs: [],
   cronStatusFilter: '',
+  cronAgentFilter: '',
+  agentNameMap: {}, // id -> display name
   settings: {
     verbose_logging: false,
   },
@@ -2487,19 +2498,65 @@ async function saveContext() {
 // Crons Page
 // ═══════════════════════════════════════════════════════════
 async function loadCrons() {
+  // Load agent name map
+  try {
+    const agents = await api('GET', '/api/agents');
+    state.agentNameMap = {};
+    for (const a of agents) {
+      state.agentNameMap[a.name] = a.display_name || a.name;
+    }
+  } catch (e) {}
   try {
     const data = await api('GET', '/api/crons');
     state.cronJobs = data.jobs || [];
     vlog('Crons loaded', { count: state.cronJobs.length });
   } catch (e) {
     state.cronJobs = [];
-    throw e;
   }
+  // Load launchd agents
+  try {
+    const ld = await api('GET', '/api/launchd');
+    state.launchdAgents = ld.agents || [];
+  } catch (e) {
+    state.launchdAgents = [];
+  }
+  // Build unified list
+  const ocJobs = state.cronJobs.map(j => ({
+    ...j,
+    _type: 'openclaw',
+    _sortName: j.name || j.id,
+    _sortAgent: j.agentId || '',
+    _enabled: j.enabled,
+    _statusLabel: !j.enabled ? 'disabled' : (j.state?.lastRunStatus || 'ok'),
+    _schedule: j.schedule?.human || j.schedule?.expr || '—',
+    _lastRun: j.state?.lastRunAt ? formatCronTimestamp(j.state.lastRunAt) : '—',
+    _duration: j.state?.lastRunDurationMs ? formatDuration(j.state.lastRunDurationMs) : '—',
+  }));
+  const ldJobs = state.launchdAgents.map(a => ({
+    id: a.id,
+    _type: 'launchd',
+    _sortName: a.name || a.label,
+    _sortAgent: a.agentId || '',
+    _enabled: !a.disabled,
+    _statusLabel: a.status,
+    _schedule: a.schedule,
+    _lastRun: '—',
+    _duration: a.exitStatus !== '?' ? `exit ${a.exitStatus}` : '—',
+    name: a.name || a.label,
+    description: a.description || '',
+    agentId: a.agentId,
+    program: a.program,
+    pid: a.pid,
+    loaded: a.loaded,
+    disabled: a.disabled,
+  }));
+  state.allCronJobs = [...ocJobs, ...ldJobs];
+  populateCronAgentFilter();
 }
 
 function setCronFilter(filter) {
   state.cronStatusFilter = filter;
-  const labelMap = { '': 'all', 'enabled': 'enabled', 'disabled': 'disabled', 'error': 'errors' };
+  const labelMap = { '': 'all', 'openclaw': 'openclaw', 'launchd': 'launchagent', 'enabled': 'enabled', 'disabled': 'disabled', 'error': 'errors' };
   const activeLabel = labelMap[filter] || filter;
   document.querySelectorAll('.cron-filter-btn').forEach(b => {
     const match = b.textContent.toLowerCase().trim() === activeLabel;
@@ -2508,27 +2565,57 @@ function setCronFilter(filter) {
   renderCronSidebar();
 }
 
+function setCronAgentFilter(agentId) {
+  state.cronAgentFilter = agentId;
+  renderCronTable();
+}
+
+function populateCronAgentFilter() {
+  const sel = document.getElementById('cron-agent-filter');
+  if (!sel) return;
+  // Use all known agents from agentNameMap, not just those with crons
+  const agents = Object.keys(state.agentNameMap).sort();
+  const current = state.cronAgentFilter;
+  sel.innerHTML = '<option value="">All Agents</option>' +
+    agents.map(a => {
+      const displayName = state.agentNameMap[a];
+      return `<option value="${esc(a)}"${a === current ? ' selected' : ''}>${esc(displayName)}</option>`;
+    }).join('');
+}
+
 function renderCronSidebar() { renderCronTable(); } // alias for backward compat
 
 function renderCronTable() {
   const query = (document.getElementById('cron-filter')?.value || '').toLowerCase();
   const statusFilter = state.cronStatusFilter;
+  const agentFilter = state.cronAgentFilter;
 
-  let filtered = state.cronJobs;
+  let filtered = state.allCronJobs;
   if (query) {
     filtered = filtered.filter(j =>
-      `${j.name} ${j.description} ${j.agentId} ${j.id}`.toLowerCase().includes(query)
+      `${j.name || ''} ${j.description || ''} ${j.agentId || ''} ${j.id || ''}`.toLowerCase().includes(query)
     );
   }
-  if (statusFilter === 'enabled') filtered = filtered.filter(j => j.enabled);
-  else if (statusFilter === 'disabled') filtered = filtered.filter(j => !j.enabled);
-  else if (statusFilter === 'error') filtered = filtered.filter(j => j.state?.lastRunStatus === 'error' || j.state?.consecutiveErrors > 0);
+  // Agent filter
+  if (agentFilter) filtered = filtered.filter(j => (j._sortAgent || j.agentId || '') === agentFilter);
+  // Type filters
+  if (statusFilter === 'openclaw') filtered = filtered.filter(j => j._type === 'openclaw');
+  else if (statusFilter === 'launchd') filtered = filtered.filter(j => j._type === 'launchd');
+  // Status filters
+  else if (statusFilter === 'enabled') filtered = filtered.filter(j => j._enabled);
+  else if (statusFilter === 'disabled') filtered = filtered.filter(j => !j._enabled);
+  else if (statusFilter === 'error') filtered = filtered.filter(j =>
+    (j._type === 'openclaw' && (j.state?.lastRunStatus === 'error' || j.state?.consecutiveErrors > 0)) ||
+    (j._type === 'launchd' && j.exitStatus && j.exitStatus !== '0' && j.exitStatus !== '?')
+  );
 
-  // Sort by agent then name
+  // Sort by agent then type then name
   filtered.sort((a, b) => {
-    const agentCmp = (a.agentId || '').localeCompare(b.agentId || '');
+    const agentCmp = (a._sortAgent || '').localeCompare(b._sortAgent || '');
     if (agentCmp !== 0) return agentCmp;
-    return (a.name || '').localeCompare(b.name || '');
+    const typeCmp = (a._type || '').localeCompare(b._type || '');
+    if (typeCmp !== 0) return typeCmp;
+    return (a._sortName || '').localeCompare(b._sortName || '');
   });
 
   const tbody = document.getElementById('cron-table-body');
@@ -2537,7 +2624,7 @@ function renderCronTable() {
   if (!filtered.length) {
     tbody.innerHTML = '';
     emptyEl.classList.remove('hidden');
-    document.getElementById('cron-count-bar').textContent = `0 of ${state.cronJobs.length} jobs`;
+    document.getElementById('cron-count-bar').textContent = `0 of ${state.allCronJobs.length} jobs`;
     return;
   }
   emptyEl.classList.add('hidden');
@@ -2545,26 +2632,40 @@ function renderCronTable() {
   let html = '';
   for (const j of filtered) {
     const active = j.id === state.selectedCron;
-    const statusColor = !j.enabled ? 'text-gray-500' : (j.state?.lastRunStatus === 'error' ? 'text-red-400' : 'text-green-400');
-    const statusLabel = !j.enabled ? 'disabled' : (j.state?.lastRunStatus || 'ok');
-    const schedule = j.schedule?.human || j.schedule?.expr || '—';
-    const lastRun = j.state?.lastRunAt ? formatCronTimestamp(j.state.lastRunAt) : '—';
-    const duration = j.state?.lastRunDurationMs ? formatDuration(j.state.lastRunDurationMs) : '—';
+    const isOC = j._type === 'openclaw';
+    const typeBadge = isOC
+      ? '<span class="text-xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-300 font-medium">OC</span>'
+      : '<span class="text-xs px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-300 font-medium">LD</span>';
+
+    let statusColor, statusLabel;
+    if (isOC) {
+      statusColor = !j.enabled ? 'text-gray-500' : (j.state?.lastRunStatus === 'error' ? 'text-red-400' : 'text-green-400');
+      statusLabel = !j.enabled ? 'disabled' : (j.state?.lastRunStatus || 'ok');
+    } else {
+      if (j.disabled) { statusColor = 'text-gray-500'; statusLabel = 'disabled'; }
+      else if (j.status === 'running') { statusColor = 'text-green-400'; statusLabel = 'running'; }
+      else if (j.loaded) { statusColor = 'text-yellow-400'; statusLabel = 'loaded'; }
+      else { statusColor = 'text-red-400'; statusLabel = 'unloaded'; }
+    }
 
     html += `
-      <tr onclick="selectCron('${esc(j.id)}')" class="border-b border-gray-800/50 cursor-pointer transition ${active ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}">
-        <td class="py-3 px-3 font-medium text-gray-200">${esc(j.name || j.id.slice(0, 8))}</td>
-        <td class="py-3 px-3 text-gray-400 font-mono text-xs">${esc(schedule)}</td>
-        <td class="py-3 px-3 text-gray-400">${esc(j.agentId || '—')}</td>
+      <tr onclick="${isOC ? `selectCron('${esc(j.id)}')` : ''}" class="border-b border-gray-800/50 ${isOC ? 'cursor-pointer' : ''} transition ${active ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}">
+        <td class="py-3 px-3 font-medium text-gray-200">${esc(j._sortName)}</td>
+        <td class="py-3 px-3">${typeBadge}</td>
+        <td class="py-3 px-3 text-gray-400 font-mono text-xs">${esc(j._schedule)}</td>
+        <td class="py-3 px-3 text-gray-400">${esc(state.agentNameMap[j._sortAgent] || j._sortAgent || '—')}</td>
         <td class="py-3 px-3"><span class="${statusColor} font-medium">${esc(statusLabel)}</span></td>
-        <td class="py-3 px-3 text-gray-500 text-xs">${lastRun}</td>
-        <td class="py-3 px-3 text-gray-500 text-xs">${duration}</td>
+        <td class="py-3 px-3 text-gray-500 text-xs">${j._lastRun}</td>
+        <td class="py-3 px-3 text-gray-500 text-xs">${j._duration}</td>
       </tr>`;
   }
 
   tbody.innerHTML = html;
-  document.getElementById('cron-count-bar').textContent = `${filtered.length} of ${state.cronJobs.length} jobs`;
+  document.getElementById('cron-count-bar').textContent = `${filtered.length} of ${state.allCronJobs.length} jobs`;
 }
+
+// LaunchAgents rendering
+// renderLaunchdTable removed — LaunchAgents merged into unified renderCronTable
 
 function closeCronDetail() {
   document.getElementById('cron-detail-panel').classList.add('hidden');

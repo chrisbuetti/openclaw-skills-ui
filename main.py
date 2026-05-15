@@ -1395,7 +1395,13 @@ def _photo_media_type(path: str) -> str:
 async def agent_photo(name: str):
     path = _agent_photo_path(name)
     if path:
-        return FileResponse(path, media_type=_photo_media_type(path))
+        # Cache-bust: use file mtime as etag so browser refetches on update
+        mtime = str(int(os.path.getmtime(path)))
+        return FileResponse(
+            path,
+            media_type=_photo_media_type(path),
+            headers={"Cache-Control": "no-cache, must-revalidate", "ETag": f'"{mtime}"'},
+        )
     # Serve default
     if os.path.isfile(DEFAULT_PHOTO_PATH):
         return FileResponse(DEFAULT_PHOTO_PATH, media_type="image/png")
@@ -1554,6 +1560,124 @@ async def get_cron_runs(cron_id: str, limit: int = 10):
         raise HTTPException(status_code=500, detail=result.get("error", result.get("stderr", "Failed to get cron runs")))
     data = result.get("data", {})
     return data if isinstance(data, dict) else {"entries": []}
+
+
+# --- LaunchAgent (launchd) monitoring ---
+LAUNCHD_AGENTS_DIR = os.path.expanduser("~/Library/LaunchAgents")
+LAUNCHD_METADATA_PATH = os.path.join(OCPLATFORM_DIR, "launchd-metadata.json")
+
+
+def _load_launchd_metadata() -> dict:
+    """Load launchd metadata from third-party JSON (labels may contain aliased strings)."""
+    try:
+        with open(LAUNCHD_METADATA_PATH, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _parse_plist_schedule(plist_data: dict) -> str:
+    """Convert plist schedule fields to human-readable string."""
+    cal = plist_data.get("StartCalendarInterval")
+    if cal is not None:
+        if isinstance(cal, dict):
+            days = cal.get("Weekday")
+            hour = cal.get("Hour", 0)
+            minute = cal.get("Minute", 0)
+            day_str = "" if days is None else f" {['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][days]} "
+            return f"{hour:02d}:{minute:02d}{day_str} daily"
+        elif isinstance(cal, list):
+            entries = []
+            for entry in cal:
+                h = entry.get("Hour", 0)
+                m = entry.get("Minute", 0)
+                entries.append(f"{h:02d}:{m:02d}")
+            return ", ".join(entries)
+    interval = plist_data.get("StartInterval")
+    if interval:
+        if interval >= 3600:
+            hours = interval / 3600
+            return f"Every {hours:.0f}h" if hours == int(hours) else f"Every {hours:.1f}h"
+        elif interval >= 60:
+            minutes = interval / 60
+            return f"Every {minutes:.0f}m" if minutes == int(minutes) else f"Every {minutes:.1f}m"
+        return f"Every {interval}s"
+    return "On demand"
+
+
+@app.get("/api/launchd")
+async def list_launchd_agents():
+    """List all tracked launchd agents with live status."""
+    metadata = _load_launchd_metadata()
+    if not metadata:
+        return {"agents": []}
+
+    agents = []
+
+    # Get live status from launchctl
+    try:
+        launchctl_out = subprocess.run(
+            ["launchctl", "list"], capture_output=True, text=True, timeout=10
+        )
+        live_status = {}
+        if launchctl_out.returncode == 0:
+            for line in launchctl_out.stdout.strip().split("\n"):
+                parts = line.split()
+                if len(parts) >= 3:
+                    pid, status, label = parts[0], parts[1], parts[2]
+                    live_status[label] = {"pid": pid if pid != "-" else None, "exitStatus": status}
+    except Exception:
+        live_status = {}
+
+    for label, meta in metadata.items():
+        filename = meta.get("filename", f"{label}.plist")
+        plist_path = os.path.join(LAUNCHD_AGENTS_DIR, filename)
+        # Also check disabled variant
+        if not os.path.isfile(plist_path):
+            disabled_path = plist_path + ".disabled"
+            if os.path.isfile(disabled_path):
+                plist_path = disabled_path
+
+        is_disabled = plist_path.endswith(".disabled")
+        is_loaded = label in live_status
+        live = live_status.get(label, {})
+        pid = live.get("pid")
+        exit_status = live.get("exitStatus", "?")
+
+        # Parse plist for schedule
+        schedule_human = "unknown"
+        program = ""
+        if os.path.isfile(plist_path):
+            try:
+                result = subprocess.run(
+                    ["plutil", "-convert", "json", "-o", "-", plist_path],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0:
+                    pdata = json.loads(result.stdout)
+                    schedule_human = _parse_plist_schedule(pdata)
+                    args = pdata.get("ProgramArguments", [])
+                    program = " ".join(args) if args else pdata.get("Program", "")
+            except Exception:
+                pass
+
+        agents.append({
+            "id": label,
+            "label": label,
+            "name": meta.get("name", label),
+            "description": meta.get("description", ""),
+            "agentId": meta.get("agentId", "main"),
+            "schedule": schedule_human,
+            "program": program,
+            "loaded": is_loaded,
+            "disabled": is_disabled,
+            "pid": pid,
+            "exitStatus": exit_status,
+            "status": "disabled" if is_disabled else ("running" if pid else ("loaded" if is_loaded else "unloaded")),
+        })
+
+    return {"agents": agents}
+
 
 
 if __name__ == "__main__":
