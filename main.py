@@ -1584,7 +1584,8 @@ def _parse_plist_schedule(plist_data: dict) -> str:
             days = cal.get("Weekday")
             hour = cal.get("Hour", 0)
             minute = cal.get("Minute", 0)
-            day_str = "" if days is None else f" {['','Mon','Tue','Wed','Thu','Fri','Sat','Sun'][days]} "
+            day_names = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
+            day_str = "" if days is None else f" {day_names[days]} "
             return f"{hour:02d}:{minute:02d}{day_str} daily"
         elif isinstance(cal, list):
             entries = []
@@ -1626,7 +1627,8 @@ async def list_launchd_agents():
                 if len(parts) >= 3:
                     pid, status, label = parts[0], parts[1], parts[2]
                     live_status[label] = {"pid": pid if pid != "-" else None, "exitStatus": status}
-    except Exception:
+    except Exception as e:
+        logging.warning(f"Failed to run launchctl list: {e}")
         live_status = {}
 
     for label, meta in metadata.items():
@@ -1678,6 +1680,72 @@ async def list_launchd_agents():
 
     return {"agents": agents}
 
+
+@app.post("/api/launchd/sync")
+async def sync_launchd_metadata():
+    """Regenerate launchd-metadata.json by scanning ~/Library/LaunchAgents/*.plist."""
+    agents_dir = LAUNCHD_AGENTS_DIR
+    metadata = {}
+
+    # Workspace path -> agent ID mapping
+    ws_map = {}
+    config_path = os.path.join(OCPLATFORM_DIR, "openclaw.json")
+    if os.path.isfile(config_path):
+        try:
+            with open(config_path) as f:
+                cfg = json.load(f)
+            for a in cfg.get("agents", {}).get("list", []):
+                ws_map[f"workspace-{a['id']}"] = a["id"]
+        except Exception:
+            pass
+
+    for fname in sorted(os.listdir(agents_dir)):
+        is_disabled = fname.endswith(".plist.disabled")
+        if not fname.endswith(".plist") and not is_disabled:
+            continue
+        fp = os.path.join(agents_dir, fname)
+        try:
+            r = subprocess.run(
+                ["plutil", "-convert", "json", "-o", "-", fp],
+                capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode != 0:
+                continue
+            data = json.loads(r.stdout)
+            label = data.get("Label", "")
+
+            # Filter to relevant plists
+            relevant_kw = ["rwc", "rosewater", "claude"]
+            is_relevant = any(k in label.lower() or k in fname.lower() for k in relevant_kw)
+            if not is_relevant:
+                args = data.get("ProgramArguments", [])
+                is_relevant = any(".openclaw" in str(a) for a in args)
+            if not is_relevant:
+                continue
+
+            # Determine agent from workspace paths
+            args = data.get("ProgramArguments", [])
+            wd = data.get("WorkingDirectory", "")
+            all_paths = " ".join(str(a) for a in args) + " " + wd
+            agent_id = "main"
+            for ws_key, ws_agent in ws_map.items():
+                if ws_key in all_paths:
+                    agent_id = ws_agent
+                    break
+
+            metadata[label] = {
+                "name": label,
+                "description": "",
+                "agentId": agent_id,
+                "filename": fname,
+            }
+        except Exception as e:
+            logging.warning(f"Failed to parse plist {fname}: {e}")
+
+    with open(LAUNCHD_METADATA_PATH, "w") as f:
+        json.dump(metadata, f, indent=2)
+
+    return {"ok": True, "count": len(metadata), "labels": list(metadata.keys())}
 
 
 if __name__ == "__main__":
