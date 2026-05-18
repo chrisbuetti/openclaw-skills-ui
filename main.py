@@ -1646,9 +1646,10 @@ async def list_launchd_agents():
         pid = live.get("pid")
         exit_status = live.get("exitStatus", "?")
 
-        # Parse plist for schedule
+        # Parse plist for schedule and log paths
         schedule_human = "unknown"
         program = ""
+        log_paths = []
         if os.path.isfile(plist_path):
             try:
                 result = subprocess.run(
@@ -1660,8 +1661,44 @@ async def list_launchd_agents():
                     schedule_human = _parse_plist_schedule(pdata)
                     args = pdata.get("ProgramArguments", [])
                     program = " ".join(args) if args else pdata.get("Program", "")
+                    for lp in [pdata.get("StandardOutPath"), pdata.get("StandardErrorPath")]:
+                        if lp and lp not in log_paths:
+                            log_paths.append(lp)
             except Exception:
                 pass
+
+        # Get last run info from launchctl print and log file timestamps
+        last_run = None
+        run_count = None
+        try:
+            uid = os.getuid()
+            lp_result = subprocess.run(
+                ["launchctl", "print", f"gui/{uid}/{label}"],
+                capture_output=True, text=True, timeout=5
+            )
+            if lp_result.returncode == 0:
+                for line in lp_result.stdout.splitlines():
+                    line = line.strip()
+                    if line.startswith("runs = "):
+                        try:
+                            run_count = int(line.split("=", 1)[1].strip())
+                        except ValueError:
+                            pass
+                    if line.startswith("last exit code = "):
+                        exit_status = line.split("=", 1)[1].strip()
+        except Exception:
+            pass
+
+        # Use log file mtime as "last run" proxy
+        for lp in log_paths:
+            if os.path.isfile(lp):
+                try:
+                    mtime = os.path.getmtime(lp)
+                    from datetime import datetime
+                    last_run = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M")
+                    break
+                except Exception:
+                    pass
 
         agents.append({
             "id": label,
@@ -1675,6 +1712,8 @@ async def list_launchd_agents():
             "disabled": is_disabled,
             "pid": pid,
             "exitStatus": exit_status,
+            "lastRun": last_run,
+            "runCount": run_count,
             "status": "disabled" if is_disabled else ("running" if pid else ("loaded" if is_loaded else "unloaded")),
         })
 
@@ -1714,14 +1753,17 @@ async def sync_launchd_metadata():
             data = json.loads(r.stdout)
             label = data.get("Label", "")
 
-            # Filter to relevant plists
-            relevant_kw = ["rwc", "rosewater", "claude"]
-            is_relevant = any(k in label.lower() or k in fname.lower() for k in relevant_kw)
-            if not is_relevant:
-                args = data.get("ProgramArguments", [])
-                is_relevant = any(".openclaw" in str(a) for a in args)
-            if not is_relevant:
+            # Filter to relevant plists (exclude Apple/system/vendor ones)
+            skip_prefixes = ("com.apple.", "com.google.", "com.microsoft.", "com.docker.",
+                             "org.mozilla.", "com.spotify.", "com.adobe.", "com.1password.",
+                             "com.raycast.", "com.logi.", "net.telerik.")
+            is_system = label.lower().startswith(skip_prefixes) or fname.lower().startswith(tuple(p for p in skip_prefixes))
+            if is_system:
                 continue
+
+            # Also include if it references .openclaw paths
+            args = data.get("ProgramArguments", [])
+            # Accept anything that isn't a known system plist
 
             # Determine agent from workspace paths
             args = data.get("ProgramArguments", [])
@@ -1746,6 +1788,372 @@ async def sync_launchd_metadata():
         json.dump(metadata, f, indent=2)
 
     return {"ok": True, "count": len(metadata), "labels": list(metadata.keys())}
+
+
+@app.get("/api/cron-descriptions")
+async def get_cron_descriptions():
+    """Return saved descriptions for OC cron jobs."""
+    desc_path = os.path.join(OCPLATFORM_DIR, "cron-descriptions.json")
+    try:
+        with open(desc_path) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+# --- Gemini description generation ---
+
+def _get_gemini_key() -> str:
+    """Load Gemini API key from openclaw config or .env."""
+    key = os.environ.get("GEMINI_API_KEY", "")
+    if not key:
+        try:
+            oc_config = json.loads(Path(os.path.expanduser("~/.openclaw/openclaw.json")).read_text())
+            key = oc_config.get("env", {}).get("GEMINI_API_KEY", "")
+        except Exception:
+            pass
+    if not key:
+        try:
+            env_path = os.path.expanduser("~/.openclaw/.env")
+            for line in Path(env_path).read_text().splitlines():
+                line = line.strip()
+                if line.startswith("GEMINI_API_KEY="):
+                    key = line.split("=", 1)[1].strip()
+                    break
+        except Exception:
+            pass
+    return key
+
+
+@app.put("/api/automations/{job_id}/description")
+async def update_automation_description(job_id: str, request: Request):
+    """Manually update a description for an automation job."""
+    body = await request.json()
+    description = body.get("description", "").strip()
+
+    metadata = _load_launchd_metadata()
+    if job_id in metadata:
+        metadata[job_id]["description"] = description
+        with open(LAUNCHD_METADATA_PATH, "w") as f:
+            json.dump(metadata, f, indent=2)
+    else:
+        desc_path = os.path.join(OCPLATFORM_DIR, "cron-descriptions.json")
+        try:
+            with open(desc_path) as f:
+                descs = json.load(f)
+        except Exception:
+            descs = {}
+        descs[job_id] = description
+        with open(desc_path, "w") as f:
+            json.dump(descs, f, indent=2)
+
+    return {"ok": True, "description": description}
+
+
+@app.post("/api/automations/{job_id}/generate-description")
+async def generate_automation_description(job_id: str):
+    """Use Gemini to generate a description for an automation job."""
+    import urllib.request
+
+    gemini_key = _get_gemini_key()
+    if not gemini_key:
+        raise HTTPException(status_code=500, detail="No Gemini API key configured")
+
+    # Gather context about the job
+    job_context = f"Job ID/Label: {job_id}\n"
+
+    # Check if it's an OpenClaw cron
+    oc_result = _run_openclaw_cmd(["cron", "show", job_id, "--json"])
+    if oc_result.get("ok"):
+        data = oc_result.get("data", {})
+        job_context += f"Type: OpenClaw cron\n"
+        job_context += f"Schedule: {json.dumps(data.get('schedule', {}), indent=2)}\n"
+        job_context += f"Agent: {data.get('agentId', 'unknown')}\n"
+        job_context += f"Name: {data.get('name', '')}\n"
+        payload = data.get('payload', {})
+        job_context += f"mcp_delegate_task message: {payload.get('message', data.get('message', ''))}\n"
+        delivery = data.get('delivery', {})
+        job_context += f"Delivers to: {delivery.get('channel', '')} channel {delivery.get('to', '')}\n"
+    else:
+        # Check if it's a launchd agent
+        metadata = _load_launchd_metadata()
+        meta = metadata.get(job_id, {})
+        plist_path = os.path.join(LAUNCHD_AGENTS_DIR, meta.get("filename", f"{job_id}.plist"))
+        if not os.path.isfile(plist_path):
+            plist_path = plist_path + ".disabled"
+
+        job_context += f"Type: LaunchAgent (launchd)\n"
+        job_context += f"Name: {meta.get('name', job_id)}\n"
+
+        if os.path.isfile(plist_path):
+            try:
+                r = subprocess.run(
+                    ["plutil", "-convert", "json", "-o", "-", plist_path],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if r.returncode == 0:
+                    pdata = json.loads(r.stdout)
+                    schedule = _parse_plist_schedule(pdata)
+                    args = pdata.get("ProgramArguments", [])
+                    program = " ".join(str(a) for a in args) if args else pdata.get("Program", "")
+                    wd = pdata.get("WorkingDirectory", "")
+                    job_context += f"Schedule: {schedule}\n"
+                    job_context += f"Program: {program}\n"
+                    job_context += f"Working Directory: {wd}\n"
+
+                    # Try to read the script content for more context
+                    # Also follow script chains (sh -> py, etc.)
+                    script_paths = []
+                    for a in args:
+                        a_str = str(a)
+                        if a_str.endswith((".sh", ".py", ".js", ".ts")):
+                            script_paths.append(a_str)
+                    # Also check working directory for common entry points
+                    if wd and not script_paths:
+                        for candidate in ["run.sh", "main.py", "index.js", "app.py"]:
+                            cp = os.path.join(wd, candidate)
+                            if os.path.isfile(cp):
+                                script_paths.append(cp)
+                                break
+
+                    total_script_chars = 0
+                    for sp in script_paths:
+                        if os.path.isfile(sp) and total_script_chars < 6000:
+                            try:
+                                content = Path(sp).read_text(encoding="utf-8")[:3000]
+                                job_context += f"\nScript content ({sp}):\n{content}\n"
+                                total_script_chars += len(content)
+                                # Follow script chain: look for called scripts
+                                import re as _re
+                                called = _re.findall(r'["\']?([\w/._-]+\.(?:py|sh|js))["\']?', content)
+                                base_dir = os.path.dirname(sp) or wd or "."
+                                for called_script in called[:3]:
+                                    cp = called_script if os.path.isabs(called_script) else os.path.join(base_dir, called_script)
+                                    if os.path.isfile(cp) and cp not in script_paths and total_script_chars < 6000:
+                                        try:
+                                            c2 = Path(cp).read_text(encoding="utf-8")[:3000]
+                                            job_context += f"\nCalled script ({cp}):\n{c2}\n"
+                                            total_script_chars += len(c2)
+                                            script_paths.append(cp)
+                                        except Exception:
+                                            pass
+                            except Exception:
+                                pass
+            except Exception:
+                pass
+
+    prompt = f"""You are a sysadmin writing descriptions for automation jobs in a dashboard.
+
+Given the following automation job details, write a detailed 2-4 sentence description that covers:
+- What this job does step by step
+- What services, tools, or APIs are involved
+- When/how often it runs and what triggers it
+- What the output or end result is
+
+CRITICAL RULES:
+- ONLY describe what you can see in the provided details. Do NOT invent or guess services, APIs, or functionality that aren't mentioned.
+- If the job details are vague, write a general description based on what IS there. Don't fill gaps with made-up specifics.
+- This is a personal Mac mini running OpenClaw (an AI agent platform). There is no LDAP, Jira, Ansible, or enterprise infrastructure unless explicitly mentioned.
+
+Be specific and technical. Write in plain English, no markdown, no quotes. Aim for 150-300 characters.
+
+{job_context}
+
+Description:"""
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 400, "temperature": 0.3, "thinkingConfig": {"thinkingBudget": 0}}
+    }
+    gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={gemini_key}"
+
+    try:
+        req = urllib.request.Request(
+            gemini_url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            result = json.loads(resp.read().decode())
+        candidates = result.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            description = "".join(p.get("text", "") for p in parts).strip()
+            # Clean up
+            description = description.strip('"').strip("'").strip()
+            if len(description) > 400:
+                description = description[:397] + "..."
+        else:
+            raise HTTPException(status_code=500, detail="No response from Gemini")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gemini API error: {e}")
+
+    # Save the description to the appropriate store
+    # For launchd jobs, update launchd-metadata.json
+    metadata = _load_launchd_metadata()
+    if job_id in metadata:
+        metadata[job_id]["description"] = description
+        with open(LAUNCHD_METADATA_PATH, "w") as f:
+            json.dump(metadata, f, indent=2)
+    else:
+        # For OC crons, store in a separate descriptions file
+        desc_path = os.path.join(OCPLATFORM_DIR, "cron-descriptions.json")
+        try:
+            with open(desc_path) as f:
+                descs = json.load(f)
+        except Exception:
+            descs = {}
+        descs[job_id] = description
+        with open(desc_path, "w") as f:
+            json.dump(descs, f, indent=2)
+
+    return {"ok": True, "description": description}
+
+
+
+
+
+# --- OpenClaw Update Info ---
+OCPLATFORM_REPO = "openclaw/openclaw"
+
+
+@app.get("/api/openclaw/status")
+async def openclaw_status():
+    """Get current installed version and latest GitHub release info."""
+    import re as _re
+
+    # Get current version
+    current = ""
+    try:
+        r = subprocess.run(["openclaw", "--version"], capture_output=True, text=True, timeout=5)
+        current = r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:
+        pass
+
+    # Get latest release from GitHub
+    latest = None
+    try:
+        r = subprocess.run(
+            ["gh", "release", "view", "--repo", OCPLATFORM_REPO, "--json", "tagName,name,publishedAt,body"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            data = json.loads(r.stdout)
+            body = data.get("body", "")
+            lines = body.split("\n")
+            summary_lines = []
+            for line in lines:
+                if line.startswith("## Fixes") or (line.startswith("## ") and len(summary_lines) > 3):
+                    break
+                if line.strip():
+                    summary_lines.append(line)
+                if len(summary_lines) >= 8:
+                    break
+            summary = "\n".join(summary_lines)
+            latest = {
+                "version": data.get("tagName", ""),
+                "name": data.get("name", ""),
+                "publishedAt": data.get("publishedAt", ""),
+                "summary": summary[:500],
+                "body": body[:5000],
+            }
+    except Exception:
+        pass
+
+    # Compare versions
+    is_latest = False
+    current_ver = ""
+    if latest and current:
+        m = _re.search(r'(\d{4}\.\d+\.\d+)', current)
+        current_ver = m.group(1) if m else ""
+        latest_ver = latest["version"].lstrip("v")
+        is_latest = current_ver == latest_ver
+
+    return {
+        "current": current,
+        "currentVersion": current_ver,
+        "latest": latest,
+        "isLatest": is_latest,
+    }
+
+
+@app.get("/api/openclaw/changelog")
+async def openclaw_changelog():
+    """Get recent releases from GitHub."""
+    try:
+        r = subprocess.run(
+            ["gh", "release", "list", "--repo", OCPLATFORM_REPO, "--limit", "10", "--exclude-pre-releases", "--json", "tagName,name,publishedAt,isLatest"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return {"releases": json.loads(r.stdout)}
+    except Exception:
+        pass
+    return {"releases": []}
+
+
+@app.post("/api/openclaw/summary")
+async def openclaw_release_summary():
+    """Generate a Gemini summary of the latest release."""
+    import urllib.request
+
+    gemini_key = _get_gemini_key()
+    if not gemini_key:
+        return {"summary": "No Gemini API key available.", "version": ""}
+
+    # Get release notes
+    try:
+        r = subprocess.run(
+            ["gh", "release", "view", "--repo", OCPLATFORM_REPO, "--json", "tagName,name,body"],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(r.stdout)
+        version = data.get("tagName", "").lstrip("v")
+        release_body = data.get("body", "")[:3000]
+    except Exception:
+        return {"summary": "Failed to fetch release data.", "version": ""}
+
+    if not release_body:
+        return {"summary": "No release notes available.", "version": version}
+
+    prompt = (
+        "You are summarizing a software release for a personal dashboard. "
+        "Write a concise, well-structured summary of OpenClaw version " + version + ".\n\n"
+        "Based on the following release notes, write a 3-5 paragraph summary that covers:\n"
+        "1. What this release is about (high-level theme)\n"
+        "2. Key changes and improvements\n"
+        "3. Important bug fixes\n"
+        "4. Any breaking changes or things to watch out for\n\n"
+        "Keep it informative but conversational. This is for the developer who runs this platform, "
+        "not a press release. Use plain text, no markdown headers or bullet points.\n\n"
+        "Release notes:\n" + release_body[:2500]
+    )
+
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {"maxOutputTokens": 2048, "temperature": 0.5, "thinkingConfig": {"thinkingBudget": 0}}
+    }
+    gemini_url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + gemini_key
+
+    try:
+        req = urllib.request.Request(
+            gemini_url,
+            data=json.dumps(payload).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            result = json.loads(resp.read().decode())
+        candidates = result.get("candidates", [])
+        if candidates:
+            parts = candidates[0].get("content", {}).get("parts", [])
+            text = "".join(p.get("text", "") for p in parts).strip()
+            if text:
+                return {"summary": text, "version": version}
+        return {"summary": "Failed to generate summary.", "version": version}
+    except Exception as e:
+        return {"summary": "Error: " + str(e), "version": version}
 
 
 if __name__ == "__main__":

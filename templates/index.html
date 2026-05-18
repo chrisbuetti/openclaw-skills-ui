@@ -4,12 +4,32 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>OCPlatform Manager</title>
+  <link rel="icon" type="image/png" href="https://images.prismic.io/robcr/aX48tt0YXLCxVPEV_openclaw.png?auto=format,compress&fit=max&w=64" />
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
     textarea { tab-size: 2; }
+    /* Markdown preview prose styles */
+    .md-preview h1 { font-size: 1.5em; font-weight: 700; margin: 1em 0 0.5em; border-bottom: 1px solid #374151; padding-bottom: 0.3em; color: #f3f4f6; }
+    .md-preview h2 { font-size: 1.3em; font-weight: 600; margin: 1em 0 0.5em; border-bottom: 1px solid #1f2937; padding-bottom: 0.2em; color: #e5e7eb; }
+    .md-preview h3 { font-size: 1.1em; font-weight: 600; margin: 0.8em 0 0.4em; color: #d1d5db; }
+    .md-preview p { margin: 0.5em 0; line-height: 1.6; color: #9ca3af; }
+    .md-preview ul, .md-preview ol { margin: 0.5em 0; padding-left: 1.5em; color: #9ca3af; }
+    .md-preview li { margin: 0.2em 0; }
+    .md-preview code { background: rgba(55, 65, 81, 0.8); padding: 0.15em 0.4em; border-radius: 4px; font-size: 0.85em; color: #fbbf24; }
+    .md-preview pre { background: #1f2937; padding: 0.8em 1em; border-radius: 6px; overflow-x: auto; margin: 0.5em 0; }
+    .md-preview pre code { background: none; padding: 0; color: #d1d5db; }
+    .md-preview blockquote { border-left: 3px solid #4b5563; padding-left: 1em; margin: 0.5em 0; color: #6b7280; }
+    .md-preview a { color: #60a5fa; text-decoration: underline; }
+    .md-preview table { border-collapse: collapse; margin: 0.5em 0; width: 100%; }
+    .md-preview th, .md-preview td { border: 1px solid #374151; padding: 0.4em 0.8em; text-align: left; color: #9ca3af; }
+    .md-preview th { background: #1f2937; color: #e5e7eb; font-weight: 600; }
+    .md-preview hr { border: none; border-top: 1px solid #374151; margin: 1em 0; }
+    .md-preview strong { color: #e5e7eb; }
+    .md-preview em { color: #d1d5db; }
     .fade-in { animation: fadeIn 0.15s ease-in; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
     .tier-platform { border-left: 3px solid #3b82f6; }
@@ -134,7 +154,8 @@
       <button onclick="navigate('groups')" id="nav-groups" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Groups</button>
       <button onclick="navigate('rules')" id="nav-rules" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Rules</button>
       <button onclick="navigate('context')" id="nav-context" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Context</button>
-      <button onclick="navigate('crons')" id="nav-crons" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Crons</button>
+      <button onclick="navigate('crons')" id="nav-crons" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">Automations</button>
+      <button onclick="navigate('ocupdate')" id="nav-ocupdate" class="nav-btn px-4 py-2 text-sm font-medium rounded-lg transition">OC Update</button>
     </div>
     <div class="ml-auto flex items-center gap-4">
       <label class="flex items-center gap-2 text-xs text-gray-400 select-none cursor-pointer desktop-only">
@@ -353,18 +374,24 @@
     </div>
 
     <!-- Context Page -->
-    <div id="page-context" class="page hidden h-full overflow-y-auto">
-      <div class="max-w-5xl mx-auto px-6 py-8 h-full flex flex-col">
-        <div class="flex items-center justify-between mb-6">
+    <div id="page-context" class="page hidden h-full overflow-hidden">
+      <div class="px-6 py-4 h-full flex flex-col">
+        <div class="flex items-center justify-between mb-4">
           <div>
             <h2 class="text-2xl font-bold">CONTEXT.md</h2>
             <p class="text-sm text-gray-500 mt-1" id="context-path">Shared rules for all agents</p>
           </div>
-          <button onclick="saveContext()" id="context-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+          <div class="flex items-center gap-3">
+            <button onclick="toggleContextPreview()" id="context-preview-toggle" class="px-3 py-1.5 bg-blue-600/30 text-blue-300 hover:bg-gray-600 text-sm font-medium rounded-lg transition">Hide Preview</button>
+            <button onclick="saveContext()" id="context-save-btn" class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg transition disabled:opacity-40" disabled>Save Changes</button>
+          </div>
         </div>
-        <textarea id="context-editor" oninput="document.getElementById('context-save-btn').disabled = false"
-          class="flex-1 w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-none"
-          placeholder="Loading..."></textarea>
+        <div class="flex-1 flex gap-4 min-h-0">
+          <textarea id="context-editor" oninput="document.getElementById('context-save-btn').disabled = false; updateContextPreview()"
+            class="flex-1 w-full px-4 py-3 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-blue-500/40 resize-none overflow-y-auto"
+            placeholder="Loading..."></textarea>
+          <div id="context-preview" class="flex-1 px-5 py-4 bg-gray-800/50 border border-gray-700 rounded-lg overflow-y-auto md-preview max-w-none"></div>
+        </div>
       </div>
     </div>
 
@@ -392,15 +419,16 @@
       <!-- Unified cron table -->
       <div class="flex-1 overflow-y-auto px-4 py-2">
         <table class="w-full text-sm">
-          <thead>
+          <thead class="sticky top-0 z-10 bg-gray-900">
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-800">
-              <th class="py-3 px-3 font-medium">Name</th>
-              <th class="py-3 px-3 font-medium">Type</th>
-              <th class="py-3 px-3 font-medium">Schedule</th>
-              <th class="py-3 px-3 font-medium">Agent</th>
-              <th class="py-3 px-3 font-medium">Status</th>
-              <th class="py-3 px-3 font-medium">Last Run</th>
-              <th class="py-3 px-3 font-medium">Duration</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Name</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Description</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Type</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Schedule</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Agent</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Status</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Last Run</th>
+              <th class="py-3 px-3 font-medium bg-gray-900">Last Result</th>
             </tr>
           </thead>
           <tbody id="cron-table-body"></tbody>
@@ -418,6 +446,61 @@
           <button onclick="closeCronDetail()" class="text-gray-500 hover:text-gray-300 text-lg leading-none">&times;</button>
         </div>
         <div id="cron-detail" class="overflow-y-auto fade-in"></div>
+      </div>
+    </div>
+
+    <!-- OC Update Page -->
+    <div id="page-ocupdate" class="page hidden h-full overflow-y-auto">
+      <div class="max-w-5xl mx-auto px-6 py-8">
+        <div class="flex items-center justify-between mb-6">
+          <div>
+            <h2 class="text-2xl font-bold">OCPlatform Update</h2>
+            <p class="text-sm text-gray-500 mt-1">Version info and release notes</p>
+          </div>
+          <button onclick="loadOCUpdate()" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm font-medium rounded-lg transition">Refresh</button>
+        </div>
+
+        <!-- Version Cards -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+          <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+            <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Installed Version</div>
+            <div id="oc-current-version" class="text-2xl font-bold text-gray-200">...</div>
+            <div id="oc-current-full" class="text-xs text-gray-500 mt-1"></div>
+          </div>
+          <div class="bg-gray-800 rounded-xl border border-gray-700 p-5">
+            <div class="text-xs text-gray-500 uppercase tracking-wider mb-2">Latest Release</div>
+            <div id="oc-latest-version" class="text-2xl font-bold text-gray-200">...</div>
+            <div id="oc-latest-date" class="text-xs text-gray-500 mt-1"></div>
+          </div>
+        </div>
+
+        <!-- Status Badge -->
+        <div id="oc-status-badge" class="mb-6 px-4 py-3 rounded-lg text-sm font-medium hidden"></div>
+
+        <!-- Release Summary -->
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-6 mb-6">
+          <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-semibold text-gray-200">Release Notes</h3>
+            <button onclick="generateOCSummary()" id="oc-summary-btn" class="px-3 py-1.5 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 text-xs font-medium rounded-lg transition">Summarize with Gemini</button>
+          </div>
+          <div id="oc-release-notes" class="text-sm text-gray-400 leading-relaxed md-preview" style="max-height: 400px; overflow-y: auto;">
+            <span class="text-gray-600">Loading...</span>
+          </div>
+        </div>
+
+        <!-- AI Summary -->
+        <div id="oc-summary-section" class="bg-gray-800/50 rounded-xl border border-gray-700 p-6 mb-6 hidden">
+          <h3 class="text-lg font-semibold text-gray-200 mb-3">AI Summary</h3>
+          <div id="oc-summary-content" class="text-sm text-gray-400 leading-relaxed"></div>
+        </div>
+
+        <!-- Recent Releases -->
+        <div class="bg-gray-800 rounded-xl border border-gray-700 p-6">
+          <h3 class="text-lg font-semibold text-gray-200 mb-4">Recent Releases</h3>
+          <div id="oc-changelog" class="space-y-2">
+            <span class="text-gray-600 text-sm">Loading...</span>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -458,6 +541,8 @@
       </div>
     </div>
   </div>
+
+
 
 <script>
 // ═══════════════════════════════════════════════════════════
@@ -622,6 +707,8 @@ async function navigate(page) {
     } else if (page === 'crons') {
       await loadCrons();
       renderCronSidebar();
+    } else if (page === 'ocupdate') {
+      await loadOCUpdate();
     }
   } catch (e) {
     console.error(`Failed to load ${page}:`, e);
@@ -2477,6 +2564,7 @@ async function loadContext() {
     document.getElementById('context-editor').value = data.content || '';
     document.getElementById('context-path').textContent = data.path || 'Shared rules for all agents';
     document.getElementById('context-save-btn').disabled = true;
+    updateContextPreview();
   } catch (e) {
     document.getElementById('context-editor').value = '';
     toast('Failed to load CONTEXT.md: ' + e.message, 'red');
@@ -2493,6 +2581,134 @@ async function saveContext() {
     toast('Failed to save: ' + e.message, 'red');
   }
 }
+
+let contextPreviewVisible = true;
+
+function toggleContextPreview() {
+  contextPreviewVisible = !contextPreviewVisible;
+  const preview = document.getElementById('context-preview');
+  const toggle = document.getElementById('context-preview-toggle');
+  if (contextPreviewVisible) {
+    preview.classList.remove('hidden');
+    toggle.textContent = 'Hide Preview';
+    toggle.classList.add('bg-blue-600/30', 'text-blue-300');
+    toggle.classList.remove('bg-gray-700', 'text-gray-300');
+    updateContextPreview();
+  } else {
+    preview.classList.add('hidden');
+    toggle.textContent = 'Preview';
+    toggle.classList.remove('bg-blue-600/30', 'text-blue-300');
+    toggle.classList.add('bg-gray-700', 'text-gray-300');
+  }
+}
+
+function updateContextPreview() {
+  if (!contextPreviewVisible) return;
+  const editor = document.getElementById('context-editor');
+  const preview = document.getElementById('context-preview');
+  if (!editor || !preview) return;
+  try {
+    preview.innerHTML = marked.parse(editor.value || '', { breaks: true, gfm: true });
+  } catch (e) {
+    preview.innerHTML = '<p class="text-red-400">Preview error</p>';
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════════
+// OC Update Page
+// ═══════════════════════════════════════════════════════════
+async function loadOCUpdate() {
+  // Load status
+  try {
+    const status = await api('GET', '/api/openclaw/status');
+
+    // Current version
+    document.getElementById('oc-current-version').textContent = status.currentVersion || 'Unknown';
+    document.getElementById('oc-current-full').textContent = status.current || '';
+
+    // Latest version
+    if (status.latest) {
+      document.getElementById('oc-latest-version').textContent = status.latest.version || 'Unknown';
+      const pubDate = status.latest.publishedAt ? new Date(status.latest.publishedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : '';
+      document.getElementById('oc-latest-date').textContent = status.latest.name ? status.latest.name + (pubDate ? ' \u2022 ' + pubDate : '') : pubDate;
+
+      // Release notes
+      const notesEl = document.getElementById('oc-release-notes');
+      if (status.latest.body && typeof marked !== 'undefined') {
+        notesEl.innerHTML = marked.parse(status.latest.body, { breaks: true, gfm: true });
+      } else if (status.latest.summary) {
+        notesEl.textContent = status.latest.summary;
+      } else {
+        notesEl.innerHTML = '<span class="text-gray-600">No release notes available</span>';
+      }
+    }
+
+    // Status badge
+    const badge = document.getElementById('oc-status-badge');
+    badge.classList.remove('hidden');
+    if (status.isLatest) {
+      badge.className = 'mb-6 px-4 py-3 rounded-lg text-sm font-medium bg-green-500/10 text-green-400 border border-green-500/20';
+      badge.innerHTML = '\u2705 You are on the latest version';
+    } else {
+      badge.className = 'mb-6 px-4 py-3 rounded-lg text-sm font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20';
+      badge.innerHTML = '\u26a0\ufe0f Update available: ' + esc(status.latest?.version || '') + ' (you have ' + esc(status.currentVersion || '?') + ')';
+    }
+  } catch (e) {
+    console.error('Failed to load OC status:', e);
+    document.getElementById('oc-current-version').textContent = 'Error';
+  }
+
+  // Load changelog
+  try {
+    const changelog = await api('GET', '/api/openclaw/changelog');
+    const el = document.getElementById('oc-changelog');
+    if (changelog.releases && changelog.releases.length) {
+      el.innerHTML = changelog.releases.map(r => {
+        const date = r.publishedAt ? new Date(r.publishedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '';
+        const isCurrent = r.isLatest ? '<span class="ml-2 text-xs px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">latest</span>' : '';
+        return '<div class="flex items-center justify-between py-2 px-3 rounded hover:bg-gray-700/50">' +
+          '<div class="flex items-center gap-2">' +
+            '<span class="font-mono text-sm text-gray-200">' + esc(r.tagName || '') + '</span>' +
+            isCurrent +
+            '<span class="text-gray-500 text-xs">' + esc(r.name || '') + '</span>' +
+          '</div>' +
+          '<span class="text-gray-600 text-xs">' + esc(date) + '</span>' +
+        '</div>';
+      }).join('');
+    } else {
+      el.innerHTML = '<span class="text-gray-600 text-sm">No releases found</span>';
+    }
+  } catch (e) {
+    console.error('Failed to load changelog:', e);
+  }
+}
+
+async function generateOCSummary() {
+  const btn = document.getElementById('oc-summary-btn');
+  const section = document.getElementById('oc-summary-section');
+  const contentEl = document.getElementById('oc-summary-content');
+
+  btn.textContent = 'Generating...';
+  btn.disabled = true;
+  section.classList.remove('hidden');
+  contentEl.innerHTML = '<span class="text-gray-500 animate-pulse">Asking Gemini to summarize the release...</span>';
+
+  try {
+    const resp = await api('POST', '/api/openclaw/summary');
+    if (resp.summary) {
+      contentEl.textContent = resp.summary;
+    } else {
+      contentEl.innerHTML = '<span class="text-red-400">Failed to generate summary</span>';
+    }
+  } catch (e) {
+    contentEl.innerHTML = '<span class="text-red-400">Error: ' + esc(e.message) + '</span>';
+  }
+
+  btn.textContent = 'Summarize with Gemini';
+  btn.disabled = false;
+}
+
 
 // ═══════════════════════════════════════════════════════════
 // Crons Page
@@ -2521,6 +2737,12 @@ async function loadCrons() {
     state.launchdAgents = [];
   }
   // Build unified list
+  // Load OC cron descriptions
+  let cronDescs = {};
+  try {
+    const descResp = await fetch('/api/cron-descriptions');
+    if (descResp.ok) cronDescs = await descResp.json();
+  } catch (e) {}
   const ocJobs = state.cronJobs.map(j => ({
     ...j,
     _type: 'openclaw',
@@ -2531,6 +2753,7 @@ async function loadCrons() {
     _schedule: j.schedule?.human || j.schedule?.expr || '—',
     _lastRun: j.state?.lastRunAt ? formatCronTimestamp(j.state.lastRunAt) : '—',
     _duration: j.state?.lastRunDurationMs ? formatDuration(j.state.lastRunDurationMs) : '—',
+    description: j.description || cronDescs[j.id] || '',
   }));
   const ldJobs = state.launchdAgents.map(a => ({
     id: a.id,
@@ -2540,8 +2763,10 @@ async function loadCrons() {
     _enabled: !a.disabled,
     _statusLabel: a.status,
     _schedule: a.schedule,
-    _lastRun: '—',
-    _duration: a.exitStatus !== '?' ? `exit ${a.exitStatus}` : '—',
+    _lastRun: a.lastRun || '—',
+    _duration: '—',
+    exitStatus: a.exitStatus || '?',
+    runCount: a.runCount,
     name: a.name || a.label,
     description: a.description || '',
     agentId: a.agentId,
@@ -2644,19 +2869,39 @@ function renderCronTable() {
     } else {
       if (j.disabled) { statusColor = 'text-gray-500'; statusLabel = 'disabled'; }
       else if (j.status === 'running') { statusColor = 'text-green-400'; statusLabel = 'running'; }
-      else if (j.loaded) { statusColor = 'text-yellow-400'; statusLabel = 'loaded'; }
+      else if (j.loaded) { statusColor = 'text-green-400'; statusLabel = 'ready'; }
       else { statusColor = 'text-red-400'; statusLabel = 'unloaded'; }
+    }
+
+    // Last result indicator
+    let lastResultHtml;
+    if (isOC) {
+      const lr = j.state?.lastRunStatus;
+      if (!j.enabled) lastResultHtml = '<span class="text-gray-500">—</span>';
+      else if (lr === 'error') lastResultHtml = '<span class="text-red-400 font-medium">❌ Failed</span>';
+      else if (lr === 'ok' || lr === 'success') lastResultHtml = '<span class="text-green-400 font-medium">✅ Success</span>';
+      else lastResultHtml = '<span class="text-gray-500">—</span>';
+    } else {
+      const ex = j.exitStatus;
+      if (j.disabled) lastResultHtml = '<span class="text-gray-500">—</span>';
+      else if (ex === '0') lastResultHtml = '<span class="text-green-400 font-medium">✅ Success</span>';
+      else if (ex === '?' || ex === '(never exited)') lastResultHtml = '<span class="text-gray-500">—</span>';
+      else if (ex === '-15' || ex === '-1') lastResultHtml = `<span class="text-yellow-400 font-medium">⚠️ Killed (${esc(ex)})</span>`;
+      else lastResultHtml = `<span class="text-red-400 font-medium">❌ Failed (exit ${esc(ex)})</span>`;
     }
 
     html += `
       <tr onclick="${isOC ? `selectCron('${esc(j.id)}')` : ''}" title="${!isOC && j.program ? esc(j.program) : ''}" class="border-b border-gray-800/50 ${isOC ? 'cursor-pointer' : ''} transition ${active ? 'bg-blue-600/10' : 'hover:bg-gray-800/50'}">
         <td class="py-3 px-3 font-medium text-gray-200">${esc(j._sortName)}</td>
+        <td class="py-3 px-3 text-gray-500 text-xs max-w-md break-words whitespace-normal" id="desc-${esc(j.id)}">${j.description
+          ? `<span class="group/desc cursor-pointer" ondblclick="event.stopPropagation(); editDescription('${esc(j.id)}', this)">${esc(j.description)}<span class="ml-1 opacity-0 group-hover/desc:opacity-100 transition-opacity"><button onclick="event.stopPropagation(); generateDescription('${esc(j.id)}')" class="text-xs px-1 py-0 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/30" title="Regenerate">↻</button><button onclick="event.stopPropagation(); editDescription('${esc(j.id)}', this.parentElement.parentElement)" class="text-xs px-1 py-0 rounded bg-gray-700 text-gray-300 hover:bg-gray-600 ml-0.5" title="Edit">✎</button></span></span>`
+          : `<button onclick="event.stopPropagation(); generateDescription('${esc(j.id)}')" class="text-xs px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition">Generate</button>`}</td>
         <td class="py-3 px-3">${typeBadge}</td>
         <td class="py-3 px-3 text-gray-400 font-mono text-xs">${esc(j._schedule)}</td>
         <td class="py-3 px-3 text-gray-400">${esc(state.agentNameMap[j._sortAgent] || j._sortAgent || '—')}</td>
         <td class="py-3 px-3"><span class="${statusColor} font-medium">${esc(statusLabel)}</span></td>
         <td class="py-3 px-3 text-gray-500 text-xs">${j._lastRun}</td>
-        <td class="py-3 px-3 text-gray-500 text-xs">${j._duration}</td>
+        <td class="py-3 px-3 text-xs">${lastResultHtml}</td>
       </tr>`;
   }
 
@@ -2666,6 +2911,53 @@ function renderCronTable() {
 
 // LaunchAgents rendering
 // renderLaunchdTable removed — LaunchAgents merged into unified renderCronTable
+
+function editDescription(jobId, el) {
+  const cell = document.getElementById(`desc-${jobId}`);
+  if (!cell) return;
+  const job = state.allCronJobs.find(j => j.id === jobId);
+  const current = job?.description || '';
+  cell.innerHTML = `<textarea id="desc-edit-${jobId}" class="w-full bg-gray-800 text-gray-200 text-xs p-1.5 rounded border border-gray-600 focus:border-blue-500 outline-none resize-y" rows="3" style="min-height:60px">${esc(current)}</textarea>
+    <div class="flex gap-1 mt-1">
+      <button onclick="event.stopPropagation(); saveDescription('${esc(jobId)}')" class="text-xs px-2 py-0.5 rounded bg-green-600/30 text-green-300 hover:bg-green-600/50">Save</button>
+      <button onclick="event.stopPropagation(); renderCronTable()" class="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-400 hover:bg-gray-600">Cancel</button>
+    </div>`;
+  document.getElementById(`desc-edit-${jobId}`)?.focus();
+}
+
+async function saveDescription(jobId) {
+  const textarea = document.getElementById(`desc-edit-${jobId}`);
+  if (!textarea) return;
+  const desc = textarea.value.trim();
+  try {
+    await api('PUT', `/api/automations/${encodeURIComponent(jobId)}/description`, { description: desc });
+    const job = state.allCronJobs.find(j => j.id === jobId);
+    if (job) job.description = desc;
+    renderCronTable();
+  } catch (e) {
+    console.error('Save description failed:', e);
+  }
+}
+
+async function generateDescription(jobId) {
+  const cell = document.getElementById(`desc-${jobId}`);
+  if (!cell) return;
+  cell.innerHTML = '<span class="text-xs text-gray-500 animate-pulse">Generating...</span>';
+  try {
+    const resp = await api('POST', `/api/automations/${encodeURIComponent(jobId)}/generate-description`);
+    if (resp.ok && resp.description) {
+      cell.innerHTML = esc(resp.description);
+      // Update state so re-renders keep it
+      const job = state.allCronJobs.find(j => j.id === jobId);
+      if (job) job.description = resp.description;
+    } else {
+      cell.innerHTML = '<span class="text-xs text-red-400">Failed</span>';
+    }
+  } catch (e) {
+    cell.innerHTML = '<span class="text-xs text-red-400">Error</span>';
+    console.error('Generate description failed:', e);
+  }
+}
 
 function closeCronDetail() {
   document.getElementById('cron-detail-panel').classList.add('hidden');
