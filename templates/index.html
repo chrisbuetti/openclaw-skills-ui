@@ -2590,7 +2590,7 @@ async function runDiagnose() {
 
     document.getElementById('diagnose-loading').classList.add('hidden');
 
-    if (data.ok) {
+    if (data.ok && res.ok) {
       document.getElementById('diagnose-modal-title').textContent = 'Diagnostic Complete';
       document.getElementById('diagnose-modal-icon').textContent = '✅';
       document.getElementById('diagnose-output').textContent = data.output || '(no output)';
@@ -2599,7 +2599,7 @@ async function runDiagnose() {
     } else {
       document.getElementById('diagnose-modal-title').textContent = 'Diagnostic Failed';
       document.getElementById('diagnose-modal-icon').textContent = '❌';
-      const errMsg = data.error || 'Unknown error';
+      const errMsg = data.error || data.detail || 'Unknown error';
       if (data.output) {
         document.getElementById('diagnose-output').textContent = data.output;
         document.getElementById('diagnose-output').classList.remove('hidden');

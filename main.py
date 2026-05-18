@@ -880,7 +880,7 @@ DIAGNOSE_PROMPT_PATH = os.path.join(OCPLATFORM_DIR, "scripts", "slack-debug-prom
 async def api_diagnose():
     """Run the OCPlatform diagnostic using Claude CLI."""
     if not os.path.isfile(DIAGNOSE_PROMPT_PATH):
-        raise HTTPException(status_code=404, detail=f"Diagnostic prompt not found at {DIAGNOSE_PROMPT_PATH}")
+        return {"ok": False, "error": f"Diagnostic prompt not found at {DIAGNOSE_PROMPT_PATH}"}
     try:
         prompt_content = Path(DIAGNOSE_PROMPT_PATH).read_text(encoding="utf-8")
         log_verbose("Running OpenClaw diagnostic")
@@ -901,9 +901,9 @@ async def api_diagnose():
             return {"ok": False, "output": output, "error": err_output or f"Process exited with code {proc.returncode}"}
         return {"ok": True, "output": output}
     except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="Claude CLI not found. Is 'claude' installed and in PATH?")
+        return {"ok": False, "error": "Claude CLI not found. Is 'claude' installed and in PATH?"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        return {"ok": False, "error": str(e)}
 
 
 # --- Skills ---
