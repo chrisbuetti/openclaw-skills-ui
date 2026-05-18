@@ -189,6 +189,21 @@
         <!-- Stats Cards -->
         <div class="grid grid-cols-4 gap-4 mb-8" id="stats-cards"></div>
 
+        <!-- Browser Sessions -->
+        <div class="mb-8">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold">Browser Sessions <span class="text-sm font-normal text-gray-500" id="browser-total-mem"></span></h2>
+            <div class="flex gap-2">
+              <button onclick="loadBrowserSessions()" class="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium rounded-lg transition border border-gray-700">Refresh</button>
+              <button onclick="killAllBrowsers()" class="px-3 py-1.5 bg-red-500/15 hover:bg-red-500/25 text-red-400 text-xs font-medium rounded-lg transition border border-red-500/20">Kill All</button>
+            </div>
+          </div>
+          <div id="browser-sessions" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+            <div class="text-gray-600 text-sm">Loading...</div>
+          </div>
+        </div>
+
+
         <!-- Agent Grid -->
         <div class="flex items-center gap-3 mb-4">
           <h2 class="text-lg font-semibold">Agents</h2>
@@ -198,6 +213,7 @@
           </select>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8" id="agent-grid"></div>
+
 
         <!-- Skill Matrix -->
         <h2 class="text-lg font-semibold mb-4">Skill Matrix <span class="text-sm font-normal text-gray-500">(per-agent skills only)</span></h2>
@@ -614,6 +630,85 @@ async function api(method, path, body) {
   return data;
 }
 
+
+// ═══════════════════════════════════════════════════════════
+// Browser Session Management
+// ═══════════════════════════════════════════════════════════
+async function loadBrowserSessions() {
+  try {
+    const data = await api('GET', '/api/browsers');
+    const container = document.getElementById('browser-sessions');
+    const totalMem = document.getElementById('browser-total-mem');
+
+    if (!data.profiles || data.profiles.length === 0) {
+      container.innerHTML = '<div class="col-span-full text-gray-600 text-sm py-4 text-center">No active browser sessions</div>';
+      totalMem.textContent = '';
+      return;
+    }
+
+    totalMem.textContent = '(' + data.totalMemMB + ' MB total, ' + data.totalProcesses + ' processes)';
+
+    container.innerHTML = data.profiles.map(p => {
+      const memColor = p.totalMemMB > 2000 ? 'text-red-400' : p.totalMemMB > 1000 ? 'text-yellow-400' : 'text-green-400';
+      return '<div class="bg-gray-800 rounded-xl border border-gray-700 p-4 flex flex-col gap-2 group hover:border-gray-600 transition">' +
+        '<div class="flex items-center justify-between">' +
+          '<div class="flex items-center gap-2">' +
+            '<div class="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>' +
+            '<span class="font-mono text-sm font-semibold text-gray-200">' + esc(p.profile) + '</span>' +
+          '</div>' +
+          '<button onclick="killBrowser(\'' + esc(p.profile) + '\')" class="opacity-0 group-hover:opacity-100 px-2 py-1 bg-red-500/15 hover:bg-red-500/25 text-red-400 text-xs rounded transition" title="Kill this browser">&times;</button>' +
+        '</div>' +
+        '<div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">' +
+          '<div class="text-gray-500">Memory</div>' +
+          '<div class="' + memColor + ' font-medium text-right">' + p.totalMemMB + ' MB</div>' +
+          '<div class="text-gray-500">CPU</div>' +
+          '<div class="text-gray-300 text-right">' + p.totalCpu + '%</div>' +
+          '<div class="text-gray-500">Processes</div>' +
+          '<div class="text-gray-300 text-right">' + p.processCount + '</div>' +
+          '<div class="text-gray-500">Started</div>' +
+          '<div class="text-gray-300 text-right">' + esc(p.started || '-') + '</div>' +
+          '<div class="text-gray-500">PID</div>' +
+          '<div class="text-gray-400 font-mono text-right">' + (p.mainPid || '-') + '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+
+  } catch (e) {
+    console.error('Failed to load browser sessions:', e);
+    document.getElementById('browser-sessions').innerHTML = '<div class="text-red-400 text-sm">Error loading browser sessions</div>';
+  }
+}
+
+async function killBrowser(profile) {
+  if (!confirm('Kill browser profile "' + profile + '"? The agent will need to relaunch it next time.')) return;
+  try {
+    const result = await api('POST', '/api/browsers/kill/' + encodeURIComponent(profile));
+    if (result.error) {
+      toast(result.error, 'error');
+    } else {
+      toast('Killed browser: ' + profile, 'success');
+      setTimeout(loadBrowserSessions, 1000);
+    }
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function killAllBrowsers() {
+  if (!confirm('Kill ALL agent browser sessions? They will relaunch when agents need them.')) return;
+  try {
+    const result = await api('POST', '/api/browsers/kill/all');
+    if (result.error) {
+      toast(result.error, 'error');
+    } else {
+      toast('Killed ' + (result.killed || 0) + ' browser profiles', 'success');
+      setTimeout(loadBrowserSessions, 1500);
+    }
+  } catch (e) {
+    toast('Failed: ' + e.message, 'error');
+  }
+}
+
 async function loadDashboard() {
   document.getElementById('status-bar').innerHTML = '<span class="text-gray-500">Loading...</span>';
   state.dashboard = await api('GET', '/api/dashboard');
@@ -627,6 +722,7 @@ async function loadDashboard() {
   syncLoggingLevelSelect();
   vlog('Dashboard loaded', { agents: state.agents.length, settings: state.settings, loggingSettings: state.loggingSettings, verboseDefaultSettings: state.verboseDefaultSettings });
   document.getElementById('status-bar').innerHTML = `<span class="text-green-500">${state.agents.length} agents</span>`;
+  loadBrowserSessions();
 }
 
 async function loadSkills() {
