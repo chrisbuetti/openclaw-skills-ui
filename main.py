@@ -2159,3 +2159,136 @@ async def openclaw_release_summary():
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+
+
+# ═══════════════════════════════════════════════════════════
+# Browser Management
+# ═══════════════════════════════════════════════════════════
+
+BROWSER_BASE = os.path.expanduser("~/.openclaw/browser")
+
+
+def _get_browser_profiles() -> list:
+    """Get all active OpenClaw browser profiles with their resource usage."""
+    import re
+    profiles = {}
+
+    try:
+        # Get all Chrome processes with OpenClaw browser paths
+        result = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=5
+        )
+
+        for line in result.stdout.splitlines():
+            if ".openclaw/browser/" not in line or "grep" in line:
+                continue
+
+            parts = line.split()
+            if len(parts) < 11:
+                continue
+
+            pid = int(parts[1])
+            cpu = float(parts[2])
+            mem_pct = float(parts[3])
+            rss_kb = int(parts[5])
+            started = parts[8] if len(parts) > 8 else ""
+
+            # Extract profile name from --user-data-dir
+            match = re.search(r'\.openclaw/browser/([^/]+)/user-data', line)
+            if not match:
+                continue
+
+            profile = match.group(1)
+
+            if profile not in profiles:
+                profiles[profile] = {
+                    "profile": profile,
+                    "mainPid": None,
+                    "pids": [],
+                    "totalMemMB": 0,
+                    "totalCpu": 0,
+                    "processCount": 0,
+                    "started": "",
+                    "debugPort": None,
+                }
+
+            profiles[profile]["pids"].append(pid)
+            profiles[profile]["totalMemMB"] += rss_kb / 1024
+            profiles[profile]["totalCpu"] += cpu
+            profiles[profile]["processCount"] += 1
+
+            # Main process has --remote-debugging-port in its own args (not child helpers)
+            if "Google Chrome --remote-debugging-port" in line:
+                profiles[profile]["mainPid"] = pid
+                profiles[profile]["started"] = started
+                port_match = re.search(r'--remote-debugging-port=(\d+)', line)
+                if port_match:
+                    profiles[profile]["debugPort"] = int(port_match.group(1))
+
+    except Exception as e:
+        return [{"error": str(e)}]
+
+    # Round values and sort
+    result_list = []
+    for p in profiles.values():
+        p["totalMemMB"] = round(p["totalMemMB"])
+        p["totalCpu"] = round(p["totalCpu"], 1)
+        result_list.append(p)
+
+    result_list.sort(key=lambda x: x["totalMemMB"], reverse=True)
+    return result_list
+
+
+@app.get("/api/browsers")
+async def list_browsers():
+    """List all active OpenClaw browser profiles."""
+    profiles = _get_browser_profiles()
+    total_mem = sum(p.get("totalMemMB", 0) for p in profiles)
+    total_procs = sum(p.get("processCount", 0) for p in profiles)
+    return {
+        "profiles": profiles,
+        "totalMemMB": total_mem,
+        "totalProcesses": total_procs,
+        "profileCount": len(profiles),
+    }
+
+
+@app.post("/api/browsers/kill/{profile}")
+async def kill_browser(profile: str):
+    """Kill all Chrome processes for a specific browser profile."""
+    if profile == "all":
+        # Kill all OpenClaw browser profiles
+        profiles = _get_browser_profiles()
+        killed = 0
+        for p in profiles:
+            main_pid = p.get("mainPid")
+            if main_pid:
+                try:
+                    os.kill(main_pid, 15)  # SIGTERM
+                    killed += 1
+                except ProcessLookupError:
+                    pass
+        return {"killed": killed, "profiles": [p["profile"] for p in profiles]}
+    else:
+        # Kill specific profile
+        profiles = _get_browser_profiles()
+        target = next((p for p in profiles if p["profile"] == profile), None)
+        if not target:
+            return {"error": f"Profile '{profile}' not found or not running"}
+        main_pid = target.get("mainPid")
+        if main_pid:
+            try:
+                os.kill(main_pid, 15)  # SIGTERM the main process, children follow
+                return {"killed": True, "profile": profile, "pid": main_pid}
+            except ProcessLookupError:
+                return {"error": f"Process {main_pid} already gone"}
+        else:
+            # No main PID, kill all associated pids
+            killed = 0
+            for pid in target.get("pids", []):
+                try:
+                    os.kill(pid, 15)
+                    killed += 1
+                except ProcessLookupError:
+                    pass
+            return {"killed": killed, "profile": profile}
